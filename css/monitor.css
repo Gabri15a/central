@@ -136,7 +136,7 @@ body { position: relative; }
 #mNoiteFim { left: 244px; top: 276px; width: 84px; height: 44px; line-height: 42px; font-size: 15px; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
 #mNoiteTela { left: 340px; top: 276px; width: 176px; height: 44px; line-height: 42px; font-size: 13px; }
 #mNoiteSom { left: 524px; top: 276px; width: 178px; height: 44px; line-height: 42px; font-size: 12px; }
-#mAlMsg { position: absolute; left: 18px; top: 336px; width: 684px; height: 40px; font-size: 13px; line-height: 19px; color: #f59e0b; overflow: hidden; }
+#mAlMsg { position: absolute; left: 18px; top: 334px; width: 684px; height: 57px; font-size: 13px; line-height: 19px; color: #f59e0b; overflow: hidden; }
 #mAlNota { position: absolute; left: 18px; top: 396px; width: 684px; font-size: 12px; line-height: 18px; color: #6b7fa3; }
 
 /* alarme sonoro: aviso em tela cheia */
@@ -296,3 +296,11 @@ body.noite { background: #000000 !important; }
 .mm7.vazio { color: #4b6284; } .mm7.sem { background: #0a1728; color: #2a4a6e; }
 .mm7p { position: absolute; width: 96px; text-align: right; font-size: 11px; font-weight: 700; color: #cfe3ff; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; white-space: nowrap; }
 .mm7p.ruim { color: #f59e0b; } .mm7p.pes { color: #ff7a7a; }
+
+/* ---------- 1.8.1: uso da VM ---------- */
+.ms1.vm2 { height: 62px; }
+.msuso { position: absolute; left: 26px; top: 42px; width: 232px; font-size: 10.5px; line-height: 14px; color: #8b9dc3; white-space: nowrap; overflow: hidden; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.msuso .am { color: #f59e0b; } .msuso .ru { color: #ff7a7a; }
+.mfpb { margin-top: 4px; width: 210px; height: 4px; background: #0e2238; border-radius: 2px; overflow: hidden; }
+.mfpb i { display: block; height: 4px; border-radius: 2px; }
+.mfv.am { color: #f59e0b; } .mfv.ru { color: #ff7a7a; }

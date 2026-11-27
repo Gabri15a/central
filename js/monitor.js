@@ -43,7 +43,7 @@
   /* alarme: toca sem parar nos 3 primeiros minutos e depois lembra a cada 5 minutos, at\u00e9 tocar em Ciente */
   var ALARME_FORTE = 180000, REPETE_FORTE = 2600, REPETE_FRACO = 300000, REPETE_FALA = 45000;
   var al = { ligado: false, base: false, vistos: {}, tocando: false, desde: 0, ultimoSom: 0, ultimaFala: 0, falandoAte: 0, lista: [] };
-  var som = { el: null, ac: null, liberado: false, elOk: false };
+  var som = { el: null, el2: null, ac: null, liberado: false, elOk: false, el2Ok: false, elErro: 0, el2Erro: 0 };
   var voz = { ok: false, ligada: true };
   var noite = { tela: false, som: false, ini: 22, fim: 6 };
   var sil = {}; // 1.7: itens silenciados pelo usu\u00e1rio (chave|estado -> at\u00e9 quando)
@@ -206,10 +206,10 @@
     var n = vis.length, pos = {}, i, temEv = !!(m.dados && m.dados.eventos);
     if (painelNovo()) {
       pos.bi = { x: 16, y: 114, w: 424, h: 552 };
-      pos.srv = temRobos() ? { x: 452, y: 114, w: 272, h: 300 } : { x: 452, y: 114, w: 272, h: 552 };
-      if (temRobos()) { pos.rob = { x: 452, y: 426, w: 272, h: 240 }; }
-      pos.at = { x: 736, y: 114, w: 272, h: 300 };
-      pos.ev = { x: 736, y: 426, w: 272, h: 240 };
+      pos.srv = temRobos() ? { x: 452, y: 114, w: 272, h: 318 } : { x: 452, y: 114, w: 272, h: 552 };
+      if (temRobos()) { pos.rob = { x: 452, y: 444, w: 272, h: 222 }; }
+      pos.at = { x: 736, y: 114, w: 272, h: 318 };
+      pos.ev = { x: 736, y: 444, w: 272, h: 222 };
       return pos;
     }
     if (n <= 2 && temEv) {
@@ -573,7 +573,7 @@
     return n.slice(0, max - ult.length - 2).replace(/\s+$/, '') + '\u2026 ' + ult;
   }
   /* os pilares do cart\u00e3o de servi\u00e7os: itens marcados pelo coletor (p), juntando os de mesmo nome (ex.: o banco SQL visto pelos dois gateways) */
-  var ORD_P = [/^VM /, /^Gateway/, /^Banco/, /^Pain/, /^Planilhas/, /^PC /];
+  var ORD_P = [/^VM /, /^Bot /, /^Gateway/, /^Banco/, /^Pain/, /^Planilhas/, /^PC /];
   function pilares() {
     var itens = itensDo('ferramentas'), l = [], por = {}, i, j, k;
     for (i = 0; i < itens.length; i++) {
@@ -593,6 +593,16 @@
     l.sort(function (a, b) { return (a.ord - b.ord) || (a.o - b.o); });
     return l;
   }
+  /* uso da VM numa linha: CPU 6% \u00b7 mem\u00f3ria 75% \u00b7 disco 30% (\u00e2mbar/vermelho quando aperta); vazio se a leitura for velha */
+  function usoCurto(mq) {
+    var l = [], lido = mq ? quando(mq.lido) : null;
+    if (!mq || lido === null || agoraMs() - lido > 1800000) { return ''; }
+    function parte(txt, nivel) { return '<span' + (nivel ? ' class="' + nivel + '"' : '') + '>' + txt + '</span>'; }
+    if (typeof mq.cpu === 'number') { l.push(parte('CPU ' + Math.round(mq.cpu) + '%', mq.cpu >= 85 ? 'am' : '')); }
+    if (mq.mem) { l.push(parte('mem\u00f3ria ' + mq.mem[0] + '%', mq.mem[2] < 0.1 * mq.mem[1] ? 'ru' : (mq.mem[0] >= 85 || (mq.swap && mq.swap[0] > 0.8 * mq.swap[1]) ? 'am' : ''))); }
+    if (mq.disco) { l.push(parte('disco ' + mq.disco[0] + '%', mq.disco[0] >= 95 ? 'ru' : (mq.disco[0] >= 85 ? 'am' : ''))); }
+    return l.join(' \u00b7 ');
+  }
   function externos() {
     var itens = itensDo('ferramentas'), l = [], i, k;
     for (k = 0; k < EXT_ORDEM.length; k++) { for (i = 0; i < itens.length; i++) { if (itens[i].x === EXT_ORDEM[k]) { l.push(itens[i]); break; } } }
@@ -608,17 +618,18 @@
     var s = cabeca('SERVI\u00c7OS', pillDe(conta)) + '<div class="mlista" style="top:38px">';
     if (!pil.length) { s += '<div class="mvazio">Sem dados dos servi\u00e7os ainda.</div>'; y += 60; }
     for (i = 0; i < pil.length; i++) {
-      var q = pil[i], vm = q.it.vm, est = q.estado;
-      s += '<div class="ms1 ' + est + (i === 0 ? ' prim' : '') + (vm ? ' vm' : '') + '" data-act="mon-abrir" data-arg="' + U.esc(q.it.chave || q.it.nome || '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+      var q = pil[i], vm = q.it.vm, est = q.estado, uso = vm ? usoCurto(vm.maq) : '';
+      s += '<div class="ms1 ' + est + (i === 0 ? ' prim' : '') + (vm ? (uso ? ' vm vm2' : ' vm') : '') + '" data-act="mon-abrir" data-arg="' + U.esc(q.it.chave || q.it.nome || '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="msv">' + U.esc(q.valor) + '</div><div class="msn">' + U.esc(q.nome) + '</div>';
       if (vm) {
         // a VM do Google: as \u00faltimas 24 horas, hora a hora (a mais nova \u00e0 direita), e a disponibilidade
         s += '<div class="msfx">';
         for (k = 0; k < 24; k++) { s += '<i style="left:' + (k * 6) + 'px;background:' + (COR_FX[String(vm.fx || '').charAt(k)] || '#0e2238') + '"></i>'; }
         s += '</div><div class="msup">' + (vm.up !== null && vm.up !== undefined ? pctTxt(vm.up) + ' 24h' : '') + '</div>';
+        if (uso) { s += '<div class="msuso">' + uso + '</div>'; }
       }
       s += '</div>';
-      y += vm ? 46 : 24;
+      y += vm ? (uso ? 62 : 46) : 24;
     }
     s += '</div>';
     // quem \u00e9 de fora: uma bolinha para cada (Microsoft, GitHub, Google, Claude, SEFAZ)
@@ -1115,6 +1126,11 @@
     [/^vm\|https/, 'Na VM (SSH): sudo systemctl restart caddy, para ele tentar renovar o certificado na hora. O dom\u00ednio do DuckDNS precisa apontar para o IP da VM.'],
     [/^vm\|relogio/, 'Na VM (SSH): sudo timedatectl set-ntp true, para o rel\u00f3gio voltar a acertar sozinho.'],
     [/^a1\|/, 'Renovar o certificado A1 com a certificadora e instalar o .pfx novo no servidor (o deploy autom\u00e1tico usa o segredo CERTIFICADO_PFX_BASE64 do GitHub).'],
+    [/^vm\|whatsapp/, 'Na VM (SSH): sudo systemctl restart bot-whatsapp. Se o WhatsApp pedir para conectar de novo, o c\u00f3digo de pareamento aparece em: journalctl -u bot-whatsapp -n 30 | grep PAREAMENTO.'],
+    [/^vm\|memoria/, 'Na VM (SSH): free -m e top mostram quem est\u00e1 usando a mem\u00f3ria; sudo systemctl restart bot-api bot-whatsapp libera na hora. Se acontecer sempre, vale uma m\u00e1quina com 2 GB (e2-small, que \u00e9 paga).'],
+    [/^vm\|disco/, 'Na VM (SSH): du -sh ~/BOT_NATUREZAS/* | sort -h mostra o que cresce (cache de XML e registros); apague o que for antigo.'],
+    [/^vm\|cpu/, 'Na VM (SSH): top mostra quem est\u00e1 usando a CPU. A e2-micro s\u00f3 aguenta pouco tempo de CPU alta antes de o Google frear.'],
+    [/^vm\|rede/, 'No console do Google Cloud, Faturamento \u203a Relat\u00f3rios, filtre por Compute Engine e veja a linha de rede (Network Internet Egress). Se estiver cobrando, d\u00e1 para descobrir quem manda tanto dado.'],
     [/^rb\|pc/, 'Ligue o computador dos rob\u00f4s e deixe a sess\u00e3o do Windows aberta, sem ningu\u00e9m usando. Eles voltam no pr\u00f3ximo hor\u00e1rio; para adiantar, abra o fluxo no Power Automate e toque em Executar.'],
     [/^rb\|/, 'No Power Automate (make.powerautomate.com \u203a Meus fluxos), abra o fluxo: a execu\u00e7\u00e3o que falhou mostra em que passo parou. Para rodar agora, toque em Executar.'],
     [/^cl\|/, 'Nada a fazer: o problema \u00e9 na Anthropic. O bot volta a responder sozinho quando a API normalizar.'],
@@ -1316,39 +1332,79 @@
     for (i = 0; i < itens.length; i++) { if (itens[i].chave === chave) { return itens[i]; } }
     return null;
   }
+  function numBR(v, casas) { var f = Math.pow(10, casas || 0); return String(Math.round(v * f) / f).replace('.', ','); }
+  function bytesTxt(b) { return b >= 0.95 * 1073741824 ? numBR(b / 1073741824, 1) + ' GB' : Math.max(0, Math.round(b / 1048576)) + ' MB'; }
+  /* bloco com barrinha de porcentagem (uso da m\u00e1quina) */
+  function blocoU(x, y, rotulo, valor, sub, pct, nivel) {
+    var cor = nivel === 'ru' ? '#ff7a7a' : (nivel === 'am' ? '#f59e0b' : '#22d3ee');
+    return '<div class="mfb" style="left:' + x + 'px;top:' + y + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv' + (nivel ? ' ' + nivel : '') + '">' + U.esc(valor) + '</div>' +
+      (pct === null || pct === undefined ? '' : '<div class="mfpb"><i style="width:' + Math.max(2, Math.min(100, Math.round(pct))) + '%;background:' + cor + '"></i></div>') +
+      '<div class="mfs">' + U.esc(sub || '') + '</div></div>';
+  }
+  function bloco2(x, y, rotulo, valor, sub) {
+    return '<div class="mfb" style="left:' + x + 'px;top:' + y + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv">' + U.esc(valor) + '</div><div class="mfs">' + U.esc(sub || '') + '</div></div>';
+  }
+  function diaMesTxt(ms) { var d = local(ms); return U.pad2(d.getDate()) + '/' + U.pad2(d.getMonth() + 1); }
   function renderVm(it) {
     var v = it.vm, d = m.dados, agora = agoraMs(), est = NOME_EST[it.estado] || NOME_EST.info, ate = silenciado(it), t = quando(it.quando), desde = quando(v.desde), ger = d ? quando(d.gerado) : null, i, k;
+    var mq = v.maq && usoCurto(v.maq) ? v.maq : null, bot = estadoDe('vm|whatsapp'), y0 = mq ? 272 : 178;
     var s = '<div class="ptit">' + U.esc(it.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : est[0]) + '">' + (ate ? 'SILENCIADO' : (it.estado === 'ok' ? 'NO AR' : est[1])) + '</span></div>';
     s += '<div class="mfsub">' + U.esc((it.valor || '') + (it.estado !== 'ok' && t !== null ? ' \u00b7 desde ' + quandoTxt(t) + ' (' + idadeTxt(agora - t) + ')' : (desde !== null ? ' \u00b7 sem falha desde ' + quandoTxt(desde) : '')) +
       (v.v ? ' \u00b7 API v' + v.v : '') + (v.host ? ' \u00b7 ' + v.host + (v.ip ? ' (' + v.ip + ')' : '') : '')) + '</div>';
     var temUp = v.up !== null && v.up !== undefined;
     s += bloco(18, 'DISPONIBILIDADE \u00b7 24 H', temUp ? pctTxt(v.up) : '\u2014', v.n ? v.n + ' ' + U.plural(v.n, 'confer\u00eancia', 'confer\u00eancias') + ' \u00b7 ' + (v.f ? v.f + ' sem resposta' : 'nenhuma sem resposta') + (v.up7 !== undefined ? ' \u00b7 7 dias: ' + pctTxt(v.up7) : '') : '');
     s += bloco(266, 'TEMPO DE RESPOSTA', v.lat ? segTxt(v.lat[0]) : '\u2014', v.lat ? '1 em cada 10 passa de ' + segTxt(v.lat[1]) + ' \u00b7 medido do PC do coletor' : '');
-    s += bloco(514, 'CONSULTAS HOJE', String(v.hoje || 0), (v.lote ? v.lote + ' ' + U.plural(v.lote, 'nota de lote pendente', 'notas de lote pendentes') + ' \u00b7 ' : '') + 'pedidos do Protheus \u00e0 API');
+    if (bot && bot.n) {
+      s += bloco(514, 'USO HOJE', bot.n[0] + ' ' + U.plural(bot.n[0], 'nota', 'notas'), 'no WhatsApp \u00b7 ' + (v.hoje || 0) + ' ' + U.plural(v.hoje || 0, 'consulta', 'consultas') + ' da API \u00b7 no m\u00eas: ' + bot.n[1] + ' notas' + (typeof v.mes === 'number' ? ' e ' + v.mes + ' consultas' : ''));
+    } else {
+      s += bloco(514, 'CONSULTAS HOJE', String(v.hoje || 0), (v.lote ? v.lote + ' ' + U.plural(v.lote, 'nota de lote pendente', 'notas de lote pendentes') + ' \u00b7 ' : '') + 'pedidos do Protheus \u00e0 API');
+    }
     s += bloco(762, 'FILA', v.fila ? v.fila[0] + (v.fila[1] ? ' de ' + v.fila[1] : '') : '\u2014', (v.sim ? v.sim[0] + (v.sim[1] ? ' de ' + v.sim[1] : '') + ' em andamento' : '') + (v.rec ? ' \u00b7 ' + v.rec + ' ' + U.plural(v.rec, 'recusada', 'recusadas') : ' \u00b7 nenhuma recusada'));
+    if (mq) {
+      // uso da m\u00e1quina: o que a pr\u00f3pria API informa (CPU desde a leitura anterior, mem\u00f3ria, disco e o que a placa de rede mandou no m\u00eas)
+      var cpuN = typeof mq.cpu === 'number' ? mq.cpu : null;
+      s += blocoU(18, 176, 'CPU', cpuN !== null ? Math.round(cpuN) + '%' : '\u2014', (mq.carga !== undefined ? 'carga ' + numBR(mq.carga, 2) + ' em ' : '') + (mq.nucleos || 1) + ' n\u00facleos' + (mq.roubada >= 5 ? ' \u00b7 o Google segurou ' + Math.round(mq.roubada) + '%' : ''), cpuN, cpuN !== null && cpuN >= 85 ? 'am' : '');
+      if (mq.mem) {
+        var memN = mq.mem[2] < 0.1 * mq.mem[1] ? 'ru' : (mq.mem[0] >= 85 || (mq.swap && mq.swap[0] > 0.8 * mq.swap[1]) ? 'am' : '');
+        s += blocoU(266, 176, 'MEM\u00d3RIA', mq.mem[0] + '%', (mq.mem[1] - mq.mem[2]) + ' de ' + mq.mem[1] + ' MB em uso' + (mq.swap ? ' \u00b7 swap: ' + mq.swap[0] + ' de ' + mq.swap[1] + ' MB' : ''), mq.mem[0], memN);
+      }
+      if (mq.disco) {
+        s += blocoU(514, 176, 'DISCO', mq.disco[0] + '%', numBR(mq.disco[1] - mq.disco[2], 1) + ' de ' + numBR(mq.disco[1], 1) + ' GB \u00b7 ' + numBR(mq.disco[2], 1) + ' GB livres', mq.disco[0], mq.disco[0] >= 95 ? 'ru' : (mq.disco[0] >= 85 ? 'am' : ''));
+      }
+      if (mq.rede) {
+        var rd = mq.rede, desdeR = quando(rd.desde), gr = rd.gratis || 1073741824;
+        s += blocoU(762, 176, 'REDE \u00b7 ENVIADO NO M\u00caS', bytesTxt(rd.tx), (desdeR !== null ? 'desde ' + diaMesTxt(desdeR) + ' \u00b7 ' : '') + 'o plano gr\u00e1tis cobre ' + bytesTxt(gr) + ' por m\u00eas', 100 * rd.tx / gr, rd.tx > 0.8 * gr ? 'am' : '');
+      }
+    }
     // as \u00faltimas 24 horas
-    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS 24 HORAS \u00b7 verde = respondeu sempre \u00b7 \u00e2mbar = falhou alguma vez \u00b7 vermelho = fora do ar \u00b7 escuro = sem registro</div><div class="mfvm">';
+    s += '<div class="mfl" style="left:18px;top:' + y0 + 'px">\u00daLTIMAS 24 HORAS \u00b7 verde = respondeu sempre \u00b7 \u00e2mbar = falhou alguma vez \u00b7 vermelho = fora do ar \u00b7 escuro = sem registro</div><div class="mfvm" style="top:' + (y0 + 18) + 'px">';
     for (k = 0; k < 24; k++) { s += '<i style="left:' + (k * 39) + 'px;background:' + (COR_FX[String(v.fx || '').charAt(k)] || '#0e2238') + '"></i>'; }
     s += '</div>';
     if (ger !== null) {
       var hFim = Math.floor(ger / 3600000);
       for (k = 0; k < 24; k++) {
         var hr = local((hFim - 23 + k) * 3600000).getHours();
-        if (k === 23) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:226px">agora</div>'; }
-        else if (hr % 3 === 0 && k < 22) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:226px">' + U.pad2(hr) + 'h</div>'; }
+        if (k === 23) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:' + (y0 + 46) + 'px">agora</div>'; }
+        else if (hr % 3 === 0 && k < 22) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:' + (y0 + 46) + 'px">' + U.pad2(hr) + 'h</div>'; }
       }
     }
-    var pode = podeSilenciar(it), limite = pode ? 498 : 566, linhas = [], dica = dicaItem(it), rot = 'O QUE O MONITOR CONFERE';
+    var pode = podeSilenciar(it), limite = pode ? 498 : 566, linhas = [], dica = dicaItem(it), rot = 'O QUE O MONITOR CONFERE', yl = y0 + 74;
     if (it.estado !== 'ok') { linhas = partes(it.detalhe).slice(0, 3); rot = 'O QUE O MONITOR VIU'; }
     else {
       var gc = estadoDe('gc|status'), cl = estadoDe('cl|status');
-      linhas.push('A API responde: conferido a cada ' + ((d && d.pc && d.pc.intervaloMin) || 5) + ' min, de fora, sem senha nem token');
-      if (typeof v.a1 === 'number') { var a1 = local(agora + v.a1 * 86400000); linhas.push('Certificado A1 da empresa: vence em ' + U.pad2(a1.getDate()) + '/' + U.pad2(a1.getMonth() + 1) + '/' + a1.getFullYear() + ' (' + v.a1 + ' dias)'); }
-      if (typeof v.https === 'number') { linhas.push('HTTPS do dom\u00ednio: v\u00e1lido por mais ' + v.https + ' dias (o Caddy da VM renova sozinho)'); }
+      if (mq && mq.boot) {
+        var bt = quando(mq.boot);
+        linhas.push('Ligada desde ' + quandoTxt(bt) + ' (h\u00e1 ' + durCurta(agora - bt) + ')' + (mq.proc ? ' \u00b7 a API usa ' + (mq.proc.api || '?') + ' MB e o bot ' + (mq.proc.whatsapp || '?') + ' MB (sem os classificadores que ele abre)' : ''));
+      } else {
+        linhas.push('A API responde: conferido a cada ' + ((d && d.pc && d.pc.intervaloMin) || 5) + ' min, de fora, sem senha nem token');
+      }
+      if (bot) { linhas.push('Bot do WhatsApp: ' + (bot.estado === 'ok' ? '' : bot.valor + ' \u00b7 ') + partes(bot.detalhe).slice(0, 1).join('').replace(/^Servi\u00e7o ativo e conectado ao WhatsApp$/, 'conectado') + (/\u00faltima atividade/.test(bot.detalhe) ? ' \u00b7 ' + /\u00faltima atividade[^\u00b7]*/.exec(bot.detalhe)[0].replace(/\s+$/, '') : '')); }
+      if (typeof v.a1 === 'number') { var a1 = local(agora + v.a1 * 86400000); linhas.push('Certificado A1 da empresa: vence em ' + U.pad2(a1.getDate()) + '/' + U.pad2(a1.getMonth() + 1) + '/' + a1.getFullYear() + ' (' + v.a1 + ' dias)' + (typeof v.https === 'number' ? ' \u00b7 HTTPS do dom\u00ednio: mais ' + v.https + ' dias' : '')); }
+      else if (typeof v.https === 'number') { linhas.push('HTTPS do dom\u00ednio: v\u00e1lido por mais ' + v.https + ' dias (o Caddy da VM renova sozinho)'); }
       linhas.push('Google Cloud, onde a VM roda: ' + (gc ? (gc.estado === 'ok' ? 'sem incidente aberto na regi\u00e3o' : gc.valor) : 'sem leitura agora') + ' \u00b7 API do Claude, que o bot consulta: ' + (cl ? cl.valor : 'sem leitura agora'));
-      linhas.push('Endere\u00e7o, portas e rel\u00f3gio da VM: conferidos junto; viram aviso se algo sair do normal');
+      if (!mq) { linhas.push('Uso da m\u00e1quina (CPU, mem\u00f3ria, disco, rede): aparece quando a API do bot publicar esses n\u00fameros no /saude'); }
     }
-    s += '<div class="mfx" style="top:256px;max-height:' + (limite - 256) + 'px"><div class="mfl2">' + rot + '</div>';
+    s += '<div class="mfx" style="top:' + yl + 'px;max-height:' + (limite - yl) + 'px"><div class="mfl2">' + rot + '</div>';
     for (i = 0; i < linhas.length; i++) { s += '<div class="mfx1"><b>\u203a</b> ' + U.esc(linhas[i]) + '</div>'; }
     if (dica) { s += '<div class="mfl2 esp">O QUE FAZER</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
     s += '</div>';
@@ -1499,16 +1555,40 @@
   /* ---------- som do alarme ----------
      O iOS s\u00f3 deixa tocar som depois de um toque na tela. O <audio> toca mesmo com o iPad no silencioso;
      o Web Audio fica de reserva, se o arquivo n\u00e3o tocar. */
+  /* o mesmo alarme (3 pares de bipes) gerado aqui como WAV de 8 bits: toca sem depender da internet nem do certificado do site */
+  function wavBipes() {
+    var taxa = 11025, partes = [[988, 0.15], [0, 0.05], [740, 0.15], [0, 0.05]], a = [], i, j, k, n;
+    for (k = 0; k < 3; k++) {
+      for (j = 0; j < partes.length; j++) {
+        n = Math.round(taxa * partes[j][1]);
+        for (i = 0; i < n; i++) {
+          var env = Math.min(1, i / 40, (n - 1 - i) / 40);
+          a.push(partes[j][0] ? 128 + Math.round(110 * env * (Math.sin(2 * Math.PI * partes[j][0] * i / taxa) >= 0 ? 1 : -1)) : 128);
+        }
+      }
+    }
+    function u32(v) { return String.fromCharCode(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255); }
+    function u16(v) { return String.fromCharCode(v & 255, (v >> 8) & 255); }
+    var c = 'RIFF' + u32(36 + a.length) + 'WAVEfmt ' + u32(16) + u16(1) + u16(1) + u32(taxa) + u32(taxa) + u16(1) + u16(8) + 'data' + u32(a.length), pedaco = [];
+    for (i = 0; i < a.length; i++) { pedaco.push(String.fromCharCode(a[i])); }
+    return 'data:audio/wav;base64,' + window.btoa(c + pedaco.join(''));
+  }
+  function ouvirSom(el, k) {
+    el.addEventListener('playing', function () { som[k + 'Ok'] = true; som[k + 'Erro'] = 0; }, false);
+    el.addEventListener('error', function () { som[k + 'Ok'] = false; som[k + 'Erro'] = (el.error && el.error.code) || -1; }, false);
+  }
   function prepararSom(vaiTocar) {
     if (!som.el) {
       som.el = U.$('mSom');
-      if (som.el) {
-        som.el.addEventListener('playing', function () { som.elOk = true; }, false);
-        som.el.addEventListener('error', function () { som.elOk = false; }, false);
-      }
+      if (som.el) { ouvirSom(som.el, 'el'); }
     }
-    if (!som.liberado && som.el && !vaiTocar) {
-      try { som.el.load(); } catch (e) { /* nada */ }
+    if (!som.el2) {
+      try { som.el2 = document.createElement('audio'); som.el2.preload = 'auto'; som.el2.src = wavBipes(); ouvirSom(som.el2, 'el2'); } catch (e0) { som.el2 = null; }
+    }
+    // o iOS s\u00f3 deixa tocar depois sozinho o que foi preparado dentro de um toque
+    if (!som.liberado && !vaiTocar) {
+      try { if (som.el) { som.el.load(); } } catch (e) { /* nada */ }
+      try { if (som.el2) { som.el2.load(); } } catch (e1) { /* nada */ }
     }
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
@@ -1546,25 +1626,29 @@
       }
     } catch (e) { /* sem som */ }
   }
+  /* toca o alarme pelo primeiro jeito que funciona: o som guardado no app, o arquivo do site e, de reserva, o bipe do Web Audio */
   function tocar() {
-    var foi = false;
-    if (som.el && !som.el.error) {
-      try { som.el.currentTime = 0; } catch (e) { /* ainda carregando */ }
+    var lista = [[som.el2, 'el2'], [som.el, 'el']], i;
+    for (i = 0; i < lista.length; i++) {
+      var el = lista[i][0], k = lista[i][1];
+      if (!el || som[k + 'Erro']) { continue; }
+      try { el.currentTime = 0; } catch (e) { /* ainda carregando */ }
       try {
-        var r = som.el.play();
-        // navegadores novos devolvem uma promessa: ela decide; se recusarem o arquivo, vale o Web Audio
+        var r = el.play();
         if (r && typeof r.then === 'function') {
-          r.then(function () { som.elOk = true; }, function () { som.elOk = false; bipe(); });
+          (function (kk) { r.then(function () { som[kk + 'Ok'] = true; }, function () { som[kk + 'Ok'] = false; bipe(); }); })(k);
           return;
         }
-        foi = true;
-      } catch (e2) { foi = false; }
+        // iOS 9: play() n\u00e3o avisa se tocou; at\u00e9 um dos dois confirmar que toca, o Web Audio toca junto
+        if (!som.el2Ok && !som.elOk) { bipe(); }
+        return;
+      } catch (e2) { som[k + 'Erro'] = -2; }
     }
-    // iOS 9: play() n\u00e3o avisa se tocou; at\u00e9 o arquivo confirmar que toca, o Web Audio toca junto
-    if (!foi || !som.elOk) { bipe(); }
+    bipe();
   }
   function pararSom() {
     try { if (som.el) { som.el.pause(); } } catch (e) { /* nada */ }
+    try { if (som.el2) { som.el2.pause(); } } catch (e1) { /* nada */ }
     try { if (voz.ok) { window.speechSynthesis.cancel(); } } catch (e2) { /* nada */ }
     al.falandoAte = 0;
   }
@@ -1756,11 +1840,84 @@
     renderAlarmeCfg();
     renderAlarmeBotao();
   }
+  /* Testar som (1.8.1): toca o alarme de quatro jeitos, um de cada vez, e diz na tela o que o iPad conseguiu tocar.
+     Se tudo tocou e n\u00e3o se ouviu nada, o problema \u00e9 o volume ou a sa\u00edda de som do iPad, n\u00e3o o app. */
+  var diag = null;
+  var NOME_DIAG = { voz: 'Voz', arq: 'Arquivo do site', app: 'Som do app', bipe: 'Bipe' };
+  function msgDiag(t) { U.txt('mAlMsg', t); }
+  function testarVoz(d, fim) {
+    var feito = false;
+    function acabar(r) { if (feito) { return; } feito = true; if (r && !d.r.voz) { d.r.voz = r; } setTimeout(fim, 300); }
+    if (!voz.ok) { d.r.voz = 'este iPad n\u00e3o tem'; fim(); return; }
+    try {
+      var u = new window.SpeechSynthesisUtterance('Teste do alarme. \u00c9 assim que eu aviso quando aparecer um problema.');
+      u.lang = 'pt-BR'; u.rate = 1; u.volume = 1;
+      u.onstart = function () { d.r.voz = 'ok'; };
+      u.onend = function () { acabar(d.r.voz ? '' : 'ok'); };
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) { window.speechSynthesis.cancel(); }
+      window.speechSynthesis.speak(u);
+    } catch (e) { acabar('erro'); return; }
+    setTimeout(function () { try { window.speechSynthesis.cancel(); } catch (e2) { /* nada */ } acabar('n\u00e3o come\u00e7ou'); }, 7000);
+  }
+  function testarEl(d, el, k, ms, fim) {
+    if (!el) { d.r[k] = 'n\u00e3o existe'; fim(); return; }
+    var tu = 0, tocou = false, erro = 0;
+    var aoTocar = function () { tocou = true; }, aoAndar = function () { tu++; }, aoErro = function () { erro = (el.error && el.error.code) || -1; };
+    el.addEventListener('playing', aoTocar, false); el.addEventListener('timeupdate', aoAndar, false); el.addEventListener('error', aoErro, false);
+    try { el.loop = true; } catch (e) { /* nada */ }
+    try { el.currentTime = 0; } catch (e1) { /* ainda carregando */ }
+    try {
+      var p = el.play();
+      if (p && typeof p.then === 'function') { p.then(null, function () { if (!erro) { erro = -3; } }); }
+    } catch (e2) { erro = -2; }
+    setTimeout(function () {
+      try { el.pause(); el.loop = false; } catch (e3) { /* nada */ }
+      el.removeEventListener('playing', aoTocar, false); el.removeEventListener('timeupdate', aoAndar, false); el.removeEventListener('error', aoErro, false);
+      d.r[k] = erro ? 'erro ' + erro : (tocou && tu >= 2 ? 'ok' : (tocou ? 'parou' : 'n\u00e3o come\u00e7ou'));
+      if (d.r[k] === 'ok') { som[k === 'arq' ? 'elOk' : 'el2Ok'] = true; }
+      fim();
+    }, ms);
+  }
+  function testarBipe(d, fim) {
+    var ac = som.ac;
+    if (!ac) { d.r.bipe = 'sem Web Audio'; fim(); return; }
+    var t1 = ac.currentTime;
+    bipe();
+    setTimeout(function () { d.r.bipe = ac.currentTime - t1 > 0.5 ? 'ok' : 'parado' + (ac.state ? ' (' + ac.state + ')' : ''); fim(); }, 1500);
+  }
+  function resultadoDiag(d) {
+    var ks = ['voz', 'arq', 'app', 'bipe'], l = [], bons = 0, i;
+    for (i = 0; i < ks.length; i++) {
+      var r = d.r[ks[i]] || '?';
+      if (r === 'ok') { bons++; }
+      l.push(NOME_DIAG[ks[i]] + (r === 'ok' ? ' \u2713' : ' \u2717 ' + r));
+    }
+    var txt = l.join(' \u00b7 ') + '. ';
+    if (bons === ks.length) { txt += 'O iPad tocou tudo. Se voc\u00ea n\u00e3o ouviu, o som dele est\u00e1 mudo ou saindo por outro lugar: veja a Central de Controle (volume, sininho, Bluetooth) e se aparece um fone ao apertar o volume.'; }
+    else if (bons) { txt += 'O alarme passa a usar o que tocou. Se n\u00e3o ouviu nem esses, o som do iPad est\u00e1 mudo ou saindo por outro lugar.'; }
+    else { txt += 'Nenhum jeito tocou: me mande esta linha.'; }
+    msgDiag(txt);
+    diag = null;
+    renderAlarmeBotao();
+  }
   function testarSom() {
+    if (diag) { return; } // j\u00e1 est\u00e1 testando
     prepararSom(true);
-    tocar();
-    if (voz.ok && voz.ligada) { setTimeout(function () { falar('Teste do alarme. \u00c9 assim que eu aviso quando aparecer um problema.'); }, 1500); }
-    U.txt('mAlMsg', voz.ok && voz.ligada ? 'Tocou e falou? Se n\u00e3o ouviu, aumente o volume do iPad.' : 'Tocou? Se n\u00e3o ouviu, aumente o volume do iPad.');
+    // prepara os dois sons dentro do toque: depois eles tocam sozinhos, como no alarme de verdade
+    try { if (som.el) { som.el.load(); } } catch (e) { /* nada */ }
+    try { if (som.el2) { som.el2.load(); } } catch (e1) { /* nada */ }
+    var d = diag = { r: {} };
+    msgDiag('Teste 1 de 4: voz\u2026');
+    testarVoz(d, function () {
+      msgDiag('Teste 2 de 4: o arquivo do alarme, que vem do site\u2026 (d\u00e1 tempo de apertar o volume para cima)');
+      testarEl(d, som.el, 'arq', 3000, function () {
+        msgDiag('Teste 3 de 4: o som guardado no pr\u00f3prio app\u2026');
+        testarEl(d, som.el2, 'app', 2500, function () {
+          msgDiag('Teste 4 de 4: o bipe gerado na hora\u2026');
+          testarBipe(d, function () { resultadoDiag(d); });
+        });
+      });
+    });
     renderAlarmeCfg();
     renderAlarmeBotao();
   }
