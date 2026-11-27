@@ -227,3 +227,72 @@ body.noite { background: #000000 !important; }
 .mmq.forte { left: 18px; width: 236px; font-size: 10px; letter-spacing: 1px; color: #8b9dc3; font-weight: 700; text-transform: uppercase; }
 .mmc { position: absolute; display: block; border-radius: 3px; }
 .mmc.num { font-style: normal; font-size: 10px; font-weight: 700; color: #04101c; text-align: center; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+
+/* ---------- 1.8: painel em três colunas — BI | serviços e robôs | atenção e acontecimentos ---------- */
+.m18 { display: none; }
+#mFichaAlt { left: 18px; top: 584px; width: 150px; height: 46px; line-height: 44px; font-size: 15px; }
+/* BI na coluna estreita (424 px) */
+.mgrupo.est .mmn { width: 172px; }
+.mgrupo.est .mmb { left: 206px; width: 63px; }
+.mgrupo.est .mmt { width: 126px; font-size: 11px; top: 7px; }
+.mgrupo.est .mres { width: 220px; }
+.mgrupo.est .mres24 { width: 166px; }
+/* serviços: uma linha por pilar; a VM do Google tem a faixa das últimas 24 horas */
+.ms1 { position: relative; height: 24px; border-top: 1px solid #0b1b2e; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.ms1.prim { border-top: 0; }
+.ms1.vm { height: 46px; }
+.ms1 .md { top: 8px; width: 8px; height: 8px; border-radius: 4px; }
+.ms1.erro { background: rgba(255, 122, 122, 0.12); } .ms1.alerta { background: rgba(245, 158, 11, 0.09); }
+/* o valor encosta à direita e o nome fica com o resto da linha (corta com reticências só se precisar) */
+.ms1 { padding: 0 8px 0 26px; }
+.msv { float: right; max-width: 112px; margin-left: 8px; line-height: 23px; text-align: right; font-size: 10.5px; color: #cfe3ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.msn { line-height: 23px; font-size: 12px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms1.erro .msv { color: #ff7a7a; } .ms1.alerta .msv { color: #f59e0b; } .ms1.off .msn, .ms1.off .msv { color: #6b7fa3; }
+.msfx { position: absolute; left: 26px; top: 28px; width: 144px; height: 9px; }
+.msfx i { position: absolute; top: 0; width: 5px; height: 9px; border-radius: 1px; display: block; }
+.msup { position: absolute; right: 8px; top: 26px; width: 58px; text-align: right; font-size: 10px; color: #8b9dc3; white-space: nowrap; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.msrot { position: absolute; left: 18px; font-size: 9px; letter-spacing: 2px; color: #4b6284; font-weight: 700; white-space: nowrap; }
+.msx { position: absolute; width: 80px; height: 20px; }
+.msx .md { left: 0; top: 6px; width: 8px; height: 8px; border-radius: 4px; }
+.msx span { position: absolute; left: 14px; top: 2px; font-size: 11px; color: #cfe3ff; white-space: nowrap; }
+.msx.alerta span { color: #f59e0b; } .msx.erro span { color: #ff7a7a; } .msx.nd span { color: #4b6284; }
+/* robôs: nome e as últimas execuções em quadradinhos (a mais nova à direita) */
+.mrres { position: absolute; left: 18px; top: 36px; width: 244px; font-size: 11px; color: #8b9dc3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mrlista { position: absolute; left: 8px; top: 58px; right: 8px; }
+.mr1 { position: relative; height: 22px; border-top: 1px solid #0b1b2e; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.mr1.prim { border-top: 0; }
+.mr1 .md { top: 7px; width: 8px; height: 8px; border-radius: 4px; }
+.mr1.erro { background: rgba(255, 122, 122, 0.12); } .mr1.alerta { background: rgba(245, 158, 11, 0.09); }
+.mrn { position: absolute; left: 26px; top: 3px; width: 148px; font-size: 12px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; }
+.mr1.off .mrn { color: #6b7fa3; }
+.mrq { position: absolute; right: 8px; top: 7px; width: 70px; height: 8px; }
+.mrq i { position: absolute; top: 0; width: 7px; height: 8px; border-radius: 1px; display: block; }
+.mrq i.rod { opacity: 0.55; }
+.mrt { position: absolute; right: 8px; top: 5px; width: 74px; text-align: right; font-size: 10px; color: #6b7fa3; white-space: nowrap; }
+/* atenção: o que está pedindo olho agora, de qualquer cartão */
+.mat { position: relative; height: 44px; border-top: 1px solid #0e2238; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.mat.prim { border-top: 0; }
+.mat .md { top: 10px; width: 9px; height: 9px; border-radius: 5px; }
+.matn { position: absolute; left: 28px; top: 5px; width: 222px; font-size: 13px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mats { position: absolute; left: 28px; top: 24px; width: 222px; font-size: 11px; color: #8b9dc3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mat.erro .mats { color: #ff9a9a; } .mat.alerta .mats { color: #d9a54a; } .mat.info .matn { color: #cfe3ff; }
+.matok { position: absolute; left: 0; top: 78px; width: 100%; text-align: center; }
+.matok b { display: block; width: 54px; height: 54px; margin: 0 auto 12px auto; border-radius: 27px; background: #123a2a; color: #4ee892; font-size: 30px; line-height: 54px; font-weight: 800; }
+.matok span { display: block; font-size: 15px; font-weight: 700; color: #e8f2ff; }
+.matok em { display: block; margin: 6px 18px 0 18px; font-style: normal; font-size: 11px; line-height: 16px; color: #6b7fa3; }
+/* acontecimentos na coluna estreita: a hora e o texto em até duas linhas */
+.me2 { position: relative; height: 38px; border-top: 1px solid #0e2238; -webkit-box-sizing: border-box; box-sizing: border-box; overflow: hidden; }
+.me2.prim { border-top: 0; }
+.me2 .md { left: 10px; top: 8px; width: 8px; height: 8px; border-radius: 4px; }
+.me2x { position: absolute; left: 26px; top: 3px; width: 226px; height: 30px; font-size: 12px; line-height: 15px; font-weight: 600; color: #e8f2ff; overflow: hidden; }
+.me2x span { font-weight: 400; color: #8b9dc3; font-size: 11px; margin-right: 5px; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+/* fichas do robô e da VM */
+.mfpassos { position: absolute; left: 18px; width: 950px; font-size: 15px; line-height: 22px; color: #cfe3ff; }
+.mfpassos b { color: #22d3ee; margin-right: 4px; }
+.mfvm { position: absolute; left: 18px; top: 198px; width: 956px; height: 22px; }
+.mfvm i { position: absolute; top: 0; width: 34px; height: 22px; border-radius: 3px; display: block; }
+/* mapa dos 7 dias */
+.mm7 { position: absolute; display: block; border-radius: 3px; font-style: normal; font-size: 10px; font-weight: 700; color: #04101c; text-align: center; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; overflow: hidden; white-space: nowrap; }
+.mm7.vazio { color: #4b6284; } .mm7.sem { background: #0a1728; color: #2a4a6e; }
+.mm7p { position: absolute; width: 96px; text-align: right; font-size: 11px; font-weight: 700; color: #cfe3ff; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; white-space: nowrap; }
+.mm7p.ruim { color: #f59e0b; } .mm7p.pes { color: #ff7a7a; }

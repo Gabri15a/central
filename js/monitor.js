@@ -4,7 +4,9 @@
    - o painel de sa\u00fade dos modelos do Power BI (ritmo, hist\u00f3rico, quem saiu do ritmo);
    - as ferramentas e as fontes (gateway, banco, planilhas);
    - os acontecimentos (o que falhou, parou ou voltou ao normal);
-   - a ficha de cada modelo, com o erro em portugu\u00eas e o que fazer.
+   - a ficha de cada modelo, com o erro em portugu\u00eas e o que fazer;
+   - (1.8) o painel em tr\u00eas colunas: BI | servi\u00e7os (com a VM do Google sempre \u00e0 vista) e rob\u00f4s do Power Automate |
+     aten\u00e7\u00e3o (o que pede olho agora, de qualquer cart\u00e3o) e acontecimentos; fichas do rob\u00f4 e da VM; mapa dos 7 dias.
    Alarme opcional: toca, fala qual foi o problema e mostra o aviso em tela cheia.
    Somente ES5. */
 (function () {
@@ -192,9 +194,24 @@
     }
     return vis.length ? vis : GRUPOS.slice(0, 2);
   }
+  /* 1.8: o coletor novo manda as marcas dos servi\u00e7os e os rob\u00f4s; a\u00ed o painel passa a ter tr\u00eas colunas */
+  function versaoNum(v) { var p = String(v || '').split('.'); return (parseInt(p[0], 10) || 0) * 1000 + (parseInt(p[1], 10) || 0); }
+  function painelNovo() {
+    var d = m.dados, vis = gruposVisiveis();
+    return !!(d && d.pc && versaoNum(d.pc.versao) >= 1008 && d.eventos && vis.length === 2 && vis[0].id === 'bi' && vis[1].id === 'ferramentas' && grupoDados('ferramentas'));
+  }
+  function temRobos() { var g = grupoDados('ferramentas'); return !!(g && g.robos && g.robos.length); }
   /* 2 grupos: BI alto \u00e0 esquerda; ferramentas e acontecimentos \u00e0 direita. 3 ou 4 grupos: grade 2x2 */
   function posicoes(vis) {
     var n = vis.length, pos = {}, i, temEv = !!(m.dados && m.dados.eventos);
+    if (painelNovo()) {
+      pos.bi = { x: 16, y: 114, w: 424, h: 552 };
+      pos.srv = temRobos() ? { x: 452, y: 114, w: 272, h: 300 } : { x: 452, y: 114, w: 272, h: 552 };
+      if (temRobos()) { pos.rob = { x: 452, y: 426, w: 272, h: 240 }; }
+      pos.at = { x: 736, y: 114, w: 272, h: 300 };
+      pos.ev = { x: 736, y: 426, w: 272, h: 240 };
+      return pos;
+    }
     if (n <= 2 && temEv) {
       pos[vis[0].id] = { x: 16, y: 114, w: 488, h: 552 };
       if (n === 2) { pos[vis[1].id] = { x: 520, y: 114, w: 488, h: 296 }; pos.ev = { x: 520, y: 422, w: 488, h: 244 }; }
@@ -232,7 +249,7 @@
     try { o = JSON.parse(ler(LS_SIL) || '{}'); } catch (e) { o = null; }
     if (o) { for (k in o) { if (o.hasOwnProperty(k) && o[k] > t) { sil[k] = o[k]; } } }
   }
-  function chaveSil(it) { return (it.chave || it.nome || '') + '|' + it.estado; }
+  function chaveSil(it) { return (it.ks || it.chave || it.nome || '') + '|' + it.estado; }
   function podeSilenciar(it) { return !!it && !it.m && !it.modelo && (it.estado === 'alerta' || it.estado === 'info'); }
   function silenciado(it) {
     if (!podeSilenciar(it)) { return 0; }
@@ -442,9 +459,10 @@
   }
   function renderSaude(g, p) {
     var agora = agoraMs(), grupo = grupoDados(g.id) || {}, mods = modelosDo(g.id), r = grupo.resumo || null, i;
-    var pasta = pastaUnica(mods), itens = itensDo(g.id), pill = pillDe(itens);
+    var pasta = pastaUnica(mods), itens = itensDo(g.id), pill = pillDe(itens), fino = p.w < 450;
     var max = Math.floor((p.h - 64 - 24) / 27), lista = mods.length > max ? ordenarModelos(mods).slice(0, max - 1) : mods;
     var s = cabeca(g.nome + (pasta ? ' \u00b7 ' + pasta.toUpperCase() : ''), pill);
+    U.classe(U.$('mG-' + g.id), 'est', fino);
     var res = '', dia = '';
     if (r) {
       var limTxt = r.lim ? ' \u00b7 ' + r.lim + ' no limite' : '';
@@ -452,6 +470,12 @@
       var parTxt = r.parados ? ' \u00b7 ' + r.parados + ' ' + U.plural(r.parados, 'parado', 'parados') : '';
       res = r.ok + ' de ' + r.total + ' no ritmo' + limTxt + rodTxt + parTxt;
       if (res.length > 44) { res = r.ok + ' no ritmo' + limTxt + rodTxt + parTxt; }
+      if (fino) {
+        // na coluna estreita cabe menos: fica o que importa primeiro
+        res = r.ok + ' de ' + r.total + ' no ritmo' + parTxt + limTxt + (r.rod ? ' \u00b7 ' + r.rod + ' atualizando' : '');
+        if (res.length > 36) { res = r.ok + ' de ' + r.total + ' no ritmo' + parTxt + limTxt; }
+        if (res.length > 36) { res = r.ok + ' de ' + r.total + ' no ritmo' + parTxt; }
+      }
       if (r.h24 && (r.h24[0] || r.h24[1])) { dia = '24h: ' + r.h24[0] + ' certas \u00b7 ' + r.h24[1] + ' ' + U.plural(r.h24[1], 'falha', 'falhas'); }
     }
     var temMapa = false;
@@ -460,11 +484,12 @@
     for (i = 0; i < lista.length; i++) {
       var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora);
       s += '<div class="mm ' + est + '"><i class="md ' + est + (mo.lim && est === 'ok' ? ' lim' : '') + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
-        '<div class="mmb">' + barras(mo.h, 12, 5, 2, 17, intervaloS(mo)) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
+        '<div class="mmb">' + barras(mo.h, fino ? 9 : 12, 5, 2, 17, intervaloS(mo)) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
     }
     s += '</div>';
     s += '<div class="mmais">' + (mods.length > lista.length ? '+ ' + (mods.length - lista.length) + ' outros modelos \u00b7 ' : '') +
-      (r && r.lim ? 'anel amarelo = no limite do ritmo \u00b7 ' : '') + (temMapa ? 'toque em 24h para ver o mapa do dia' : 'toque para abrir a ficha de cada modelo') + '</div>';
+      (r && r.lim ? (fino ? 'anel amarelo = no limite \u00b7 ' : 'anel amarelo = no limite do ritmo \u00b7 ') : '') +
+      (temMapa ? (fino ? 'toque em 24h: mapa do dia e dos 7 dias' : 'toque em 24h para ver o mapa do dia') : 'toque para abrir a ficha de cada modelo') + '</div>';
     U.html('mG-' + g.id, s);
   }
 
@@ -475,7 +500,7 @@
     if (!p) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
-    var max = Math.max(1, Math.floor((p.h - 44 - 22) / 40)), dia = agoraMs() - 86400000, n24 = 0, antigo = null, topo = '';
+    var estreito = p.w < 300, max = Math.max(1, Math.floor((p.h - 44 - 22) / (estreito ? 38 : 40))), dia = agoraMs() - 86400000, n24 = 0, antigo = null, topo = '';
     for (i = 0; i < evs.length; i++) {
       var t0 = quando(evs[i].t);
       if (t0 === null) { continue; }
@@ -483,25 +508,241 @@
       if (t0 >= dia && evs[i].n !== 'info') { n24++; }
     }
     // o registro pode ter come\u00e7ado h\u00e1 menos de um dia: a\u00ed n\u00e3o d\u00e1 para afirmar nada sobre as 24 horas
-    if (n24) { topo = n24 + ' nas \u00faltimas 24h'; }
-    else if (antigo !== null) { topo = antigo > dia ? 'nada novo desde ' + quandoTxt(antigo) : 'nada novo nas \u00faltimas 24h'; }
+    if (n24) { topo = n24 + (estreito ? ' em 24h' : ' nas \u00faltimas 24h'); }
+    else if (antigo !== null) { topo = estreito ? 'nada novo' : (antigo > dia ? 'nada novo desde ' + quandoTxt(antigo) : 'nada novo nas \u00faltimas 24h'); }
     var s = '<div class="mgt">ACONTECIMENTOS</div><div class="mgr mgr2">' + topo + '</div><div class="mlista">';
     if (!evs.length) { s += '<div class="mvazio">Nada por enquanto. O Monitor anota aqui quando algo falha, para ou volta ao normal.</div>'; }
     for (i = 0; i < evs.length && i < max; i++) {
       var e = evs[i], est = COR[e.n] ? e.n : 'info', t = quando(e.t);
+      if (estreito) {
+        s += '<div class="me2' + (i === 0 ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i><div class="me2x"><span>' + (t !== null ? quandoTxt(t) : '') + '</span>' + U.esc(e.x || '') + '</div></div>';
+        continue;
+      }
       s += '<div class="me' + (i === 0 ? ' prim' : '') + '"><div class="meh">' + (t !== null ? quandoTxt(t) : '') + '</div><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="mex">' + U.esc(e.x || '') + '</div><div class="med">' + U.esc(e.d || '') + '</div></div>';
     }
     s += '</div>';
-    if (evs.length > max) { s += '<div class="mmais">+ ' + (evs.length - max) + ' mais antigos \u00b7 toque para ver todos</div>'; }
+    if (evs.length > max) { s += '<div class="mmais">+ ' + (evs.length - max) + (estreito ? ' \u00b7 toque para ver todos' : ' mais antigos \u00b7 toque para ver todos') + '</div>'; }
     U.html('mEv', s);
+  }
+
+  /* ---------- 1.8: servi\u00e7os, rob\u00f4s e aten\u00e7\u00e3o ---------- */
+  var DIA_C = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 's\u00e1b'];
+  var COR_Q = { C: '#2f9e68', F: '#ff7a7a', X: '#4b6284', U: '#7fc4ff' };
+  var EXT_ORDEM = ['Microsoft', 'GitHub', 'Google', 'Claude', 'SEFAZ'];
+  function colocar(el, p) {
+    if (!el) { return false; }
+    if (!p) { el.style.display = 'none'; return false; }
+    el.style.display = 'block';
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
+    return true;
+  }
+  function pctTxt(v) { return String(v).replace('.', ',') + '%'; }
+  function segTxt(ms) { return (ms >= 9950 ? String(Math.round(ms / 1000)) : String(Math.round(ms / 100) / 10).replace('.', ',')) + ' s'; }
+  /* hoje 16:18 \u00b7 amanh\u00e3 07:18 \u00b7 seg 08:00 \u00b7 07/12 08:00 */
+  function diaTxt(ms) {
+    var d = local(ms), dif = Math.round((meiaNoite(d) - meiaNoite(local(agoraMs()))) / 86400000);
+    if (dif === 0) { return 'hoje ' + U.hhmm(d); }
+    if (dif === 1) { return 'amanh\u00e3 ' + U.hhmm(d); }
+    if (dif === -1) { return 'ontem ' + U.hhmm(d); }
+    if (dif > -7 && dif < 7) { return DIA_C[d.getDay()] + ' ' + U.hhmm(d); }
+    return U.pad2(d.getDate()) + '/' + U.pad2(d.getMonth() + 1) + ' ' + U.hhmm(d);
+  }
+  function robosDados() { var g = grupoDados('ferramentas'); return (g && g.robos) || []; }
+  function roboDe(id) {
+    var l = robosDados(), i;
+    for (i = 0; i < l.length; i++) { if (l[i].id === id) { return l[i]; } }
+    return null;
+  }
+  function sitRobo(r) {
+    if (r.estado === 'off') { return ['cinza', 'DESLIGADO']; }
+    if (r.sit === 'falhou') { return [r.estado === 'erro' ? 'vermelho' : 'ambar', 'FALHOU']; }
+    if (r.sit === 'atrasado') { return ['ambar', 'N\u00c3O RODOU']; }
+    if (r.sit === 'lento') { return ['ambar', 'DEMORANDO']; }
+    if (r.sit === 'suspenso') { return ['ambar', 'SUSPENSO']; }
+    if (r.sit === 'semexec') { return ['cinza', 'SEM EXECU\u00c7\u00c3O']; }
+    if (r.sit === 'rodando') { return ['ciano', 'RODANDO']; }
+    return ['verde', 'EM DIA'];
+  }
+  /* nome que cabe na linha do cart\u00e3o: sem "FLUXO" na frente nem o dia da semana no fim; se ainda sobrar, corta o meio e guarda a \u00faltima palavra */
+  function nomeRobo(nome, max) {
+    var n = String(nome || '').replace(/^FLUXO\s+/i, '').replace(/\s+-\s+(SEGUNDA|TER[\u00c7C]A|QUARTA|QUINTA|SEXTA)-FEIRA$/i, '').replace(/\s+-\s+(S[\u00c1A]BADO|DOMINGO)$/i, '');
+    if (n.length <= max) { return n; }
+    var i = n.lastIndexOf(' '), ult = i > 0 ? n.slice(i + 1) : '';
+    if (!ult || ult.length > 9 || max - ult.length - 2 < 6) { return n.slice(0, max - 1) + '\u2026'; }
+    return n.slice(0, max - ult.length - 2).replace(/\s+$/, '') + '\u2026 ' + ult;
+  }
+  /* os pilares do cart\u00e3o de servi\u00e7os: itens marcados pelo coletor (p), juntando os de mesmo nome (ex.: o banco SQL visto pelos dois gateways) */
+  var ORD_P = [/^VM /, /^Gateway/, /^Banco/, /^Pain/, /^Planilhas/, /^PC /];
+  function pilares() {
+    var itens = itensDo('ferramentas'), l = [], por = {}, i, j, k;
+    for (i = 0; i < itens.length; i++) {
+      var it = itens[i];
+      if (!it.p) { continue; }
+      if (!por[it.p]) { por[it.p] = { nome: it.p, itens: [], o: l.length, ord: ORD_P.length }; l.push(por[it.p]); }
+      por[it.p].itens.push(it);
+    }
+    for (i = 0; i < l.length; i++) {
+      var pior = l[i].itens[0];
+      for (j = 1; j < l[i].itens.length; j++) { if ((PESO[l[i].itens[j].estado] || 0) > (PESO[pior.estado] || 0)) { pior = l[i].itens[j]; } }
+      l[i].it = pior;
+      l[i].estado = COR[pior.estado] ? pior.estado : 'info';
+      l[i].valor = pior.pv || pior.valor || '';
+      for (k = ORD_P.length - 1; k >= 0; k--) { if (ORD_P[k].test(l[i].nome)) { l[i].ord = k; } }
+    }
+    l.sort(function (a, b) { return (a.ord - b.ord) || (a.o - b.o); });
+    return l;
+  }
+  function externos() {
+    var itens = itensDo('ferramentas'), l = [], i, k;
+    for (k = 0; k < EXT_ORDEM.length; k++) { for (i = 0; i < itens.length; i++) { if (itens[i].x === EXT_ORDEM[k]) { l.push(itens[i]); break; } } }
+    for (i = 0; i < itens.length; i++) { if (itens[i].x && l.indexOf(itens[i]) < 0) { l.push(itens[i]); } }
+    return l;
+  }
+  function renderServicos(p) {
+    var el = U.$('mSrv'), i, k;
+    if (!colocar(el, p)) { return; }
+    var pil = pilares(), ext = externos(), conta = [], y = 38;
+    for (i = 0; i < pil.length; i++) { conta.push(pil[i].it); }
+    for (i = 0; i < ext.length; i++) { conta.push(ext[i]); }
+    var s = cabeca('SERVI\u00c7OS', pillDe(conta)) + '<div class="mlista" style="top:38px">';
+    if (!pil.length) { s += '<div class="mvazio">Sem dados dos servi\u00e7os ainda.</div>'; y += 60; }
+    for (i = 0; i < pil.length; i++) {
+      var q = pil[i], vm = q.it.vm, est = q.estado;
+      s += '<div class="ms1 ' + est + (i === 0 ? ' prim' : '') + (vm ? ' vm' : '') + '" data-act="mon-abrir" data-arg="' + U.esc(q.it.chave || q.it.nome || '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+        '<div class="msv">' + U.esc(q.valor) + '</div><div class="msn">' + U.esc(q.nome) + '</div>';
+      if (vm) {
+        // a VM do Google: as \u00faltimas 24 horas, hora a hora (a mais nova \u00e0 direita), e a disponibilidade
+        s += '<div class="msfx">';
+        for (k = 0; k < 24; k++) { s += '<i style="left:' + (k * 6) + 'px;background:' + (COR_FX[String(vm.fx || '').charAt(k)] || '#0e2238') + '"></i>'; }
+        s += '</div><div class="msup">' + (vm.up !== null && vm.up !== undefined ? pctTxt(vm.up) + ' 24h' : '') + '</div>';
+      }
+      s += '</div>';
+      y += vm ? 46 : 24;
+    }
+    s += '</div>';
+    // quem \u00e9 de fora: uma bolinha para cada (Microsoft, GitHub, Google, Claude, SEFAZ)
+    if (ext.length) {
+      s += '<div class="msrot" style="top:' + (y + 9) + 'px">DE FORA</div>';
+      for (i = 0; i < ext.length && i < 6; i++) {
+        var e = ext[i], ee = COR[e.estado] ? e.estado : 'info';
+        s += '<div class="msx ' + ee + '" style="left:' + (18 + (i % 3) * 82) + 'px;top:' + (y + 24 + Math.floor(i / 3) * 20) + 'px" data-act="mon-abrir" data-arg="' + U.esc(e.chave || e.nome || '') + '">' +
+          '<i class="md ' + ee + '" style="background:' + COR[ee] + '"></i><span>' + U.esc(e.x) + '</span></div>';
+      }
+      y += 24 + Math.ceil(Math.min(ext.length, 6) / 3) * 20;
+    }
+    // sem o cart\u00e3o dos rob\u00f4s sobra espa\u00e7o: entram as outras ferramentas
+    var resto = [], itens = ordenar(itensDo('ferramentas')), cabem = Math.floor((p.h - y - 44) / 24);
+    for (i = 0; i < itens.length; i++) { if (!itens[i].p && !itens[i].x && !itens[i].rb) { resto.push(itens[i]); } }
+    if (cabem >= 2 && resto.length) {
+      s += '<div class="msrot" style="top:' + (y + 12) + 'px">OUTRAS FERRAMENTAS</div><div class="mlista" style="top:' + (y + 28) + 'px">';
+      for (i = 0; i < resto.length && i < cabem; i++) {
+        var o = resto[i], oe = COR[o.estado] ? o.estado : 'info';
+        s += '<div class="ms1 ' + oe + (i === 0 ? ' prim' : '') + (silenciado(o) ? ' sil' : '') + '" data-act="mon-abrir" data-arg="' + U.esc(o.chave || o.nome || '') + '"><i class="md ' + oe + '" style="background:' + COR[oe] + '"></i>' +
+          '<div class="msv">' + U.esc(o.valor || '') + '</div><div class="msn">' + U.esc(o.nome || '') + '</div></div>';
+      }
+      s += '</div><div class="mmais">toque para ver todas</div>';
+    }
+    U.html('mSrv', s);
+  }
+  function ordemRobos(l) {
+    var r = l.slice(0), i;
+    function peso(x) { return x.estado === 'erro' ? 5 : (x.estado === 'alerta' ? 4 : (x.sit === 'rodando' ? 3 : (x.estado === 'off' ? 0 : 2))); }
+    function ult(x) { return x.h && x.h.length ? x.h[0][1] : 0; }
+    for (i = 0; i < r.length; i++) { r[i]._o = i; }
+    r.sort(function (a, b) { return (peso(b) - peso(a)) || (ult(b) - ult(a)) || (a._o - b._o); });
+    return r;
+  }
+  function itensDosRobos() {
+    var itens = itensDo('ferramentas'), l = [], i;
+    for (i = 0; i < itens.length; i++) { if (itens[i].rb || /^rb\|/.test(itens[i].chave || '')) { l.push(itens[i]); } }
+    return l;
+  }
+  function renderRobos(p) {
+    var el = U.$('mRob'), i, k;
+    if (!colocar(el, p)) { return; }
+    var g = grupoDados('ferramentas') || {}, l = ordemRobos(robosDados()), rb = g.rb || {}, ri = itensDosRobos();
+    var max = Math.max(1, Math.floor((p.h - 58 - 22) / 22));
+    var s = cabeca('ROB\u00d4S', ri.length ? pillDe(ri) : ['verde', 'OK']);
+    var res = (rb.fal ? rb.fal + ' com problema \u00b7 ' : '') + (rb.ok || 0) + ' em dia' + (rb.rod ? ' \u00b7 ' + rb.rod + ' rodando' : '');
+    if (rb.off && res.length <= 12) { res += ' \u00b7 ' + rb.off + ' ' + U.plural(rb.off, 'desligado', 'desligados'); }
+    s += '<div class="mrres">' + U.esc('Power Automate \u00b7 ' + res) + '</div><div class="mrlista">';
+    for (i = 0; i < l.length && i < max; i++) {
+      var r = l[i], est = COR[r.estado] ? r.estado : 'info', h = (r.h || []).slice(0, 8);
+      s += '<div class="mr1 ' + est + (i === 0 ? ' prim' : '') + '" data-act="mon-robo" data-arg="' + U.esc(r.id || '') + '"><i class="md ' + est + '" style="background:' + (r.sit === 'rodando' ? '#7fc4ff' : COR[est]) + '"></i>' +
+        '<div class="mrn">' + U.esc(nomeRobo(r.nome, 19)) + '</div>';
+      if (r.estado === 'off') { s += '<div class="mrt">desligado</div>'; }
+      else {
+        s += '<div class="mrq">';
+        for (k = 0; k < h.length; k++) { s += '<i' + (h[k][0] === 'U' ? ' class="rod"' : '') + ' style="left:' + ((7 - k) * 9) + 'px;background:' + (COR_Q[h[k][0]] || '#4b6284') + '"></i>'; }
+        s += '</div>';
+      }
+      s += '</div>';
+    }
+    s += '</div><div class="mmais">' + (l.length > max ? '+ ' + (l.length - max) + ' \u00b7 toque para ver todos' : 'toque num rob\u00f4 para abrir a ficha') + '</div>';
+    U.html('mRob', s);
+  }
+  /* o que pede olho agora, de qualquer cart\u00e3o: modelos fora do ritmo, itens em problema ou alerta (os silenciados s\u00f3 na lista completa) */
+  function listaAtencao(todos) {
+    var l = [], mods = modelosDo('bi'), agora = agoraMs(), ids = ['bi', 'ferramentas'], i, g;
+    for (i = 0; i < mods.length; i++) {
+      if (mods[i].estado !== 'erro' && mods[i].estado !== 'alerta') { continue; }
+      l.push({ est: mods[i].estado, nome: mods[i].nome || '', sub: statusModelo(mods[i], agora).txt || mods[i].txt || '', quando: mods[i].inc || '', modelo: mods[i], sil: false, act: 'mon-abrir-modelo', arg: mods[i].id });
+    }
+    for (g = 0; g < ids.length; g++) {
+      var itens = itensDo(ids[g]);
+      for (i = 0; i < itens.length; i++) {
+        var it = itens[i];
+        if (it.m || it.r || it.d || (it.estado !== 'erro' && it.estado !== 'alerta')) { continue; }
+        var quieto = !!silenciado(it);
+        if (quieto && !todos) { continue; }
+        l.push({ est: it.estado, nome: it.nome || '', sub: it.valor || '', quando: it.quando || '', item: it, sil: quieto, act: it.rb ? 'mon-robo' : 'mon-abrir', arg: it.rb || it.chave || it.nome || '' });
+      }
+    }
+    for (i = 0; i < l.length; i++) { l[i]._o = i; }
+    l.sort(function (a, b) {
+      var ta = quando(a.quando) || 0, tb = quando(b.quando) || 0;
+      return ((a.sil ? 1 : 0) - (b.sil ? 1 : 0)) || ((PESO[b.est] || 0) - (PESO[a.est] || 0)) || (tb - ta) || (a._o - b._o);
+    });
+    return l;
+  }
+  function renderAtencao(p) {
+    var el = U.$('mAt'), i;
+    if (!colocar(el, p)) { return; }
+    var l = listaAtencao(false), nSil = listaAtencao(true).length - l.length, agora = agoraMs(), nErro = 0, max = Math.max(1, Math.floor((p.h - 40 - 22) / 44));
+    for (i = 0; i < l.length; i++) { if (l[i].est === 'erro') { nErro++; } }
+    var pill = nErro ? ['vermelho', nErro + ' ' + U.plural(nErro, 'PROBLEMA', 'PROBLEMAS')] : (l.length ? ['ambar', l.length + ' ' + U.plural(l.length, 'ALERTA', 'ALERTAS')] : ['verde', 'TUDO CERTO']);
+    var s = cabeca('ATEN\u00c7\u00c3O', pill);
+    if (!l.length) {
+      var g = grupoDados('bi') || {}, r = g.resumo || {}, rb = (grupoDados('ferramentas') || {}).rb || {}, nPil = pilares().length, partes2 = [];
+      if (r.total) { partes2.push(r.total + ' ' + U.plural(r.total, 'modelo', 'modelos')); }
+      if (rb.lig) { partes2.push(rb.lig + ' ' + U.plural(rb.lig, 'rob\u00f4', 'rob\u00f4s')); }
+      if (nPil) { partes2.push(nPil + ' ' + U.plural(nPil, 'servi\u00e7o', 'servi\u00e7os')); }
+      s += '<div class="matok"><b>\u2713</b><span>Nada pedindo aten\u00e7\u00e3o</span><em>' + U.esc(m.dados ? (partes2.length ? 'Acompanhando ' + partes2.join(', ') + '.' : '') : 'Sem dados ainda.') + '</em></div>';
+    } else {
+      s += '<div class="mlista">';
+      for (i = 0; i < l.length && i < max; i++) {
+        var a = l[i], t = quando(a.quando);
+        s += '<div class="mat ' + a.est + (i === 0 ? ' prim' : '') + '" data-act="' + a.act + '" data-arg="' + U.esc(a.arg || '') + '"><i class="md ' + a.est + '" style="background:' + COR[a.est] + '"></i>' +
+          '<div class="matn">' + U.esc(a.nome) + '</div><div class="mats">' + U.esc(a.sub + (t !== null && agora - t >= 60000 && !/h\u00e1 |\d\d:\d\d/.test(a.sub) ? ' \u00b7 ' + idadeTxt(agora - t) : '')) + '</div></div>';
+      }
+      s += '</div>';
+    }
+    var pe = l.length > max ? '+ ' + (l.length - max) + ' \u00b7 toque para ver todos' : (l.length ? 'toque num item para abrir' : '');
+    if (nSil) { pe = (pe ? pe + ' \u00b7 ' : '') + nSil + ' ' + U.plural(nSil, 'silenciado', 'silenciados'); }
+    s += '<div class="mmais">' + pe + '</div>';
+    U.html('mAt', s);
   }
 
   function renderGrupos() {
     var vis = gruposVisiveis(), pos = posicoes(vis);
+    seguro('servi\u00e7os', function () { renderServicos(pos.srv || null); });
+    seguro('rob\u00f4s', function () { renderRobos(pos.rob || null); });
+    seguro('aten\u00e7\u00e3o', function () { renderAtencao(pos.at || null); });
     for (var i = 0; i < GRUPOS.length; i++) {
       var g = GRUPOS[i], el = U.$('mG-' + g.id), p = pos[g.id];
       if (!el) { continue; }
+      U.classe(el, 'est', false);
       if (!p) { el.style.display = 'none'; continue; }
       el.style.display = 'block';
       el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
@@ -517,6 +758,16 @@
     if (id === 'eventos') {
       var evs = eventosDoPC();
       for (i = 0; i < evs.length; i++) { l.push({ nome: evs[i].x, valor: quando(evs[i].t) !== null ? quandoTxt(quando(evs[i].t)) : '', detalhe: evs[i].d, estado: COR[evs[i].n] ? evs[i].n : 'info', quando: evs[i].t }); }
+      return l;
+    }
+    if (id === 'robos') {
+      var rbs = ordemRobos(robosDados());
+      for (i = 0; i < rbs.length; i++) { l.push({ nome: rbs[i].nome, valor: rbs[i].txt || '', detalhe: rbs[i].det || '', estado: rbs[i].estado, quando: rbs[i].quando, rb: rbs[i].id }); }
+      return l;
+    }
+    if (id === 'atencao') {
+      var at = listaAtencao(true);
+      for (i = 0; i < at.length; i++) { l.push(at[i].modelo ? { nome: at[i].nome, valor: at[i].sub, detalhe: at[i].modelo.det || '', estado: at[i].est, quando: at[i].quando, modelo: at[i].modelo } : at[i].item); }
       return l;
     }
     var mods = id === 'bi' ? ordenarModelos(modelosDo('bi')) : [];
@@ -543,6 +794,8 @@
   }
   function tituloDetalhe(id) {
     if (id === 'eventos') { return 'ACONTECIMENTOS'; }
+    if (id === 'robos') { return 'ROB\u00d4S DO POWER AUTOMATE'; }
+    if (id === 'atencao') { return 'ATEN\u00c7\u00c3O'; }
     for (var i = 0; i < GRUPOS.length; i++) { if (GRUPOS[i].id === id) { return GRUPOS[i].nome; } }
     return '';
   }
@@ -554,7 +807,7 @@
     if (m.pag < 0) { m.pag = 0; }
     var temFicha = false;
     for (i = 0; i < total; i++) { if (itens[i].modelo) { temFicha = true; } }
-    U.txt('mDetTit', tituloDetalhe(m.det) + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens') + (m.det === 'eventos' ? '' : (temFicha ? ' \u00b7 toque num modelo ou item para ver mais' : ' \u00b7 toque num item para ver mais')));
+    U.txt('mDetTit', tituloDetalhe(m.det) + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens') + (m.det === 'eventos' ? '' : (m.det === 'robos' ? ' \u00b7 toque num rob\u00f4 para ver mais' : (temFicha ? ' \u00b7 toque num modelo ou item para ver mais' : ' \u00b7 toque num item para ver mais'))));
     var agora = agoraMs(), s = '';
     for (i = m.pag * POR_PAGINA; i < total && i < (m.pag + 1) * POR_PAGINA; i++) {
       var act = itens[i].modelo ? ' data-act="mon-modelo" data-arg="' + i + '"' : (m.det !== 'eventos' ? ' data-act="mon-item" data-arg="' + i + '"' : '');
@@ -571,7 +824,7 @@
     U.classe(U.$('mDet'), 'esc', false);
     renderDetalhe();
   }
-  function fecharFicha() { m.ficha = -1; m.fichaTipo = ''; m.fichaVolta = ''; m.fichaId = ''; m.fichaItem = null; U.classe(U.$('mFicha'), 'esc', true); }
+  function fecharFicha() { m.ficha = -1; m.fichaTipo = ''; m.fichaVolta = ''; m.fichaId = ''; m.fichaItem = null; U.classe(U.$('mFicha'), 'esc', true); U.classe(U.$('mFichaAlt'), 'esc', true); }
   /* Voltar: a ficha de um modelo aberta pelo mapa volta para o mapa */
   function voltarFicha() {
     if (m.fichaVolta === 'mapa' && m.fichaTipo !== 'mapa') { m.fichaVolta = ''; m.fichaTipo = 'mapa'; m.ficha = 0; renderFicha(); return; }
@@ -647,7 +900,9 @@
       if (c.par && c.par.length) { p.push(paradasTxt(c)); }
       t = p.join('; '); return { ruim: true, txt: t.charAt(0).toUpperCase() + t.slice(1) + '.' };
     }
-    var lido = quando(c.t), mud = quando(c.mud);
+    var lido = quando(c.t), mud = quando(c.mud), esq = '';
+    if (c.esq && quando(c.esq[0]) !== null) { esq = 'A estrutura mudou ' + quandoTxt(quando(c.esq[0])) + ' (' + c.esq[2][0] + (c.esq[1] > 1 ? ' e mais ' + (c.esq[1] - 1) : '') + '). '; }
+    if (esq) { return { ruim: false, par: true, txt: esq + (c.ul ? 'Dado mais recente: ' + diaRel(c.ul[2]) + ' (' + c.ul[0] + ') \u00b7 ' : '') + c.nt + ' tabelas e ' + milTxt(c.nl) + ' linhas' + (lido !== null ? ' \u00b7 conferido ' + quandoTxt(lido) : '') }; }
     if (c.par && c.par.length) {
       t = (c.ul ? 'Dado mais recente: ' + diaRel(c.ul[2]) + ' (' + c.ul[0] + '). ' : '') + paradasTxt(c).charAt(0).toUpperCase() + paradasTxt(c).slice(1) + ' \u2014 sem dado novo h\u00e1 mais de 30 dias.';
       return { ruim: false, par: true, txt: t };
@@ -679,7 +934,10 @@
   }
   function renderFicha() {
     if (m.ficha < 0) { return; }
-    if (m.fichaTipo === 'mapa') { renderMapa(); return; }
+    var alt = U.$('mFichaAlt');
+    if (alt) { U.classe(alt, 'esc', m.fichaTipo !== 'mapa'); U.txt('mFichaAlt', m.mapa7 ? '24 horas' : '7 dias'); }
+    if (m.fichaTipo === 'mapa') { if (m.mapa7) { renderMapa7(); } else { renderMapa(); } return; }
+    if (m.fichaTipo === 'robo') { renderRobo(); return; }
     if (m.fichaTipo === 'item') { renderItem(); return; }
     renderFichaModelo();
   }
@@ -694,7 +952,9 @@
     if (mo.sit === 'falhou' && mo.estado === 'alerta') { sit = ['ambar', 'FALHOU']; }
     var fim = quando(mo.fim), prox = quando(mo.prox), ini = quando(mo.ini), prev = quando(mo.prev);
     var s = '<div class="ptit">' + U.esc(mo.nome || '') + '</div><div class="mfp"><span class="pill ' + sit[0] + '">' + sit[1] + '</span></div>';
-    s += '<div class="mfsub">' + U.esc((mo.pasta || '') + (mo.fts ? ' \u00b7 usa ' + mo.fts : '')) + '</div>';
+    var pbT = mo.pb ? quando(mo.pb[0]) : null;
+    s += '<div class="mfsub">' + U.esc((mo.pasta || '') + (mo.fts ? ' \u00b7 usa ' + mo.fts : '') + (mo.rb ? ' \u00b7 disparado pelo rob\u00f4 ' + mo.rb[0] : '') +
+      (pbT !== null ? ' \u00b7 publicado ' + quandoTxt(pbT) : '') + (mo.nf ? ' \u00b7 sem e-mail de falha' : '')) + '</div>';
     // quatro n\u00fameros
     var ultSub = mo.durS ? 'levou ' + durLonga(mo.durS) : '';
     if (mo.rod && ini !== null) { ultSub = 'atualizando de novo desde ' + hora(ini) + (prev !== null && prev > agora ? ', termina por volta de ' + hora(prev) : ''); }
@@ -736,7 +996,8 @@
     // o que aconteceu e o que fazer
     var y = 386;
     if (mo.estado === 'erro' || mo.estado === 'alerta') {
-      s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE ACONTECEU</div><div class="mft" style="top:' + (y + 16) + 'px">' + U.esc((mo.txt ? mo.txt + ' \u00b7 ' : '') + (mo.det || '')) + '</div>';
+      s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE ACONTECEU</div><div class="mft" style="top:' + (y + 16) + 'px">' +
+        U.esc((mo.pbf && pbT !== null ? 'Come\u00e7ou a falhar logo depois da publica\u00e7\u00e3o de ' + quandoTxt(pbT) + ': comece por o que mudou no arquivo \u00b7 ' : '') + (mo.txt ? mo.txt + ' \u00b7 ' : '') + (mo.det || '')) + '</div>';
       y += 66;
       if (mo.dica && mo.dica.length) {
         s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE FAZER</div><div class="mfd" style="top:' + (y + 16) + 'px">';
@@ -800,12 +1061,47 @@
     var n = parseInt(i, 10), l = m.lista[n];
     if (isNaN(n) || !l) { return; }
     if (l.modelo) { abrirFicha(n); return; }
+    if (l.rb) { abrirRobo(l.rb); return; }
     m.ficha = n; m.fichaTipo = 'item'; m.fichaItem = l; m.fichaId = ''; m.fichaVolta = '';
+    U.classe(U.$('mFicha'), 'esc', false);
+    renderFicha();
+  }
+  /* 1.8: direto do painel (cart\u00f5es de servi\u00e7os, aten\u00e7\u00e3o e rob\u00f4s), sem passar pela lista */
+  function abrirItemChave(chave) {
+    var g, i, l;
+    for (g = 0; g < GRUPOS.length; g++) {
+      l = itensDo(GRUPOS[g].id);
+      for (i = 0; i < l.length; i++) {
+        if ((l[i].chave || l[i].nome) !== chave) { continue; }
+        if (l[i].rb) { abrirRobo(l[i].rb); return; }
+        m.ficha = 0; m.fichaTipo = 'item'; m.fichaItem = l[i]; m.fichaId = ''; m.fichaVolta = '';
+        U.classe(U.$('mFicha'), 'esc', false);
+        renderFicha();
+        return;
+      }
+    }
+  }
+  function abrirModeloDireto(id) {
+    var mods = modelosDo('bi'), i;
+    for (i = 0; i < mods.length; i++) {
+      if (mods[i].id !== id) { continue; }
+      m.ficha = 0; m.fichaTipo = 'modelo'; m.fichaId = id; m.fichaVolta = ''; m.fichaItem = null;
+      U.classe(U.$('mFicha'), 'esc', false);
+      renderFicha();
+      return;
+    }
+  }
+  function abrirRobo(id) {
+    var r = roboDe(id), itens = itensDo('ferramentas'), i;
+    if (!r) { return; }
+    m.ficha = 0; m.fichaTipo = 'robo'; m.fichaId = id; m.fichaVolta = ''; m.fichaItem = null;
+    for (i = 0; i < itens.length; i++) { if (itens[i].rb === id) { m.fichaItem = itens[i]; } }
     U.classe(U.$('mFicha'), 'esc', false);
     renderFicha();
   }
   function abrirMapa() {
     if (!modelosDo('bi').length) { return; }
+    m.mapa7 = false;
     m.ficha = 0; m.fichaTipo = 'mapa'; m.fichaId = ''; m.fichaVolta = ''; m.fichaItem = null;
     U.classe(U.$('mFicha'), 'esc', false);
     renderFicha();
@@ -819,6 +1115,13 @@
     [/^vm\|https/, 'Na VM (SSH): sudo systemctl restart caddy, para ele tentar renovar o certificado na hora. O dom\u00ednio do DuckDNS precisa apontar para o IP da VM.'],
     [/^vm\|relogio/, 'Na VM (SSH): sudo timedatectl set-ntp true, para o rel\u00f3gio voltar a acertar sozinho.'],
     [/^a1\|/, 'Renovar o certificado A1 com a certificadora e instalar o .pfx novo no servidor (o deploy autom\u00e1tico usa o segredo CERTIFICADO_PFX_BASE64 do GitHub).'],
+    [/^rb\|pc/, 'Ligue o computador dos rob\u00f4s e deixe a sess\u00e3o do Windows aberta, sem ningu\u00e9m usando. Eles voltam no pr\u00f3ximo hor\u00e1rio; para adiantar, abra o fluxo no Power Automate e toque em Executar.'],
+    [/^rb\|/, 'No Power Automate (make.powerautomate.com \u203a Meus fluxos), abra o fluxo: a execu\u00e7\u00e3o que falhou mostra em que passo parou. Para rodar agora, toque em Executar.'],
+    [/^cl\|/, 'Nada a fazer: o problema \u00e9 na Anthropic. O bot volta a responder sozinho quando a API normalizar.'],
+    [/^gc\|/, 'Nada a fazer do seu lado: \u00e9 um incidente do Google. Se a VM n\u00e3o voltar sozinha quando ele acabar, reinicie-a no console do Google Cloud.'],
+    [/^sefaz\|/, 'Nada a fazer no BI: \u00e9 na SEFAZ. As lojas emitem em conting\u00eancia at\u00e9 normalizar; se durar, vale avisar o fiscal.'],
+    [/^nf\|/, 'Nas configura\u00e7\u00f5es de cada modelo, em Atualiza\u00e7\u00e3o, marque "Enviar notifica\u00e7\u00f5es de falha de atualiza\u00e7\u00e3o" para o propriet\u00e1rio.'],
+    [/^ac\|/, 'Para conferir quem tem acesso: no workspace, Gerenciar acesso.'],
     [/^gw\|/, 'No PC do gateway: veja se est\u00e1 ligado e com internet; no app do gateway, Configura\u00e7\u00f5es de servi\u00e7o \u203a Reiniciar agora.'],
     [/^gwver\|/, 'Baixar o instalador mais recente do gateway no site da Microsoft e instalar por cima, fora do hor\u00e1rio de pico: a configura\u00e7\u00e3o continua a mesma.'],
     [/^gwpes\|/, 'Para n\u00e3o depender de login, instalar o gateway no modo padr\u00e3o (servi\u00e7o do Windows) e passar as fontes para ele.'],
@@ -889,6 +1192,7 @@
   function renderItem() {
     var it = itemAtual(m.fichaItem || {}), agora = agoraMs(), est = NOME_EST[it.estado] || NOME_EST.info, t = quando(it.quando), ate = silenciado(it), i;
     if (!m.fichaItem) { fecharFicha(); return; }
+    if (it.vm && it.vm.fx) { renderVm(it); return; }
     var s = '<div class="ptit">' + U.esc(it.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : est[0]) + '">' + (ate ? 'SILENCIADO' : est[1]) + '</span></div>';
     var y = 82, cg = it.carga, ps = partes(it.detalhe), sub = (it.valor || '') + (t !== null ? ' \u00b7 desde ' + quandoTxt(t) + ' (' + idadeTxt(agora - t) + ')' : '');
     var ehGw = !!(cg && cg.hh && cg.hh.length === 24);
@@ -936,6 +1240,177 @@
         s += '<div class="btn mfbtn" style="left:152px;top:522px;width:126px" data-act="mon-sil" data-arg="7">7 dias</div>';
         s += '<div class="btn mfbtn" style="left:286px;top:522px;width:126px" data-act="mon-sil" data-arg="30">30 dias</div>';
       }
+    }
+    U.html('mFichaCorpo', s);
+  }
+
+  /* ---------- 1.8: fichas do rob\u00f4 e da VM, e o mapa dos 7 dias ---------- */
+  function blocoSilencio(it, ate) {
+    var s = '<div class="mfl" style="left:18px;top:504px">' + (ate ? 'SILENCIADO AT\u00c9 ' + U.esc(quandoTxt(ate)).toUpperCase() : 'J\u00c1 SABE DISSO?') + '</div>';
+    s += '<div class="mfnota" style="top:520px;left:430px;width:530px">' + (ate ? 'Fica cinza no fim da lista e fora da contagem do topo. Volta sozinho quando o prazo acabar ou o item mudar de estado.' :
+      'Silenciar tira da contagem do topo e do cart\u00e3o de aten\u00e7\u00e3o. Se mudar de estado (por exemplo, falhar de novo), volta na hora.') + '</div>';
+    if (ate) { return s + '<div class="btn mfbtn" style="left:18px;top:522px;width:190px" data-act="mon-sil" data-arg="0">Voltar a avisar</div>'; }
+    return s + '<div class="btn mfbtn" style="left:18px;top:522px;width:126px" data-act="mon-sil" data-arg="1">Silenciar 1 dia</div>' +
+      '<div class="btn mfbtn" style="left:152px;top:522px;width:126px" data-act="mon-sil" data-arg="7">7 dias</div>' +
+      '<div class="btn mfbtn" style="left:286px;top:522px;width:126px" data-act="mon-sil" data-arg="30">30 dias</div>';
+  }
+  var DICA_ROBO = {
+    desktop: 'Veja se o computador dos rob\u00f4s est\u00e1 ligado, com a sess\u00e3o do Windows aberta e sem ningu\u00e9m usando. No Power Automate (make.powerautomate.com \u203a Meus fluxos), a execu\u00e7\u00e3o que falhou mostra em que passo parou; para rodar agora, toque em Executar.',
+    pbi: 'No Power Automate, abra a execu\u00e7\u00e3o que falhou. Se a conex\u00e3o do Power BI pedir login, entre de novo em Dados \u203a Conex\u00f5es; se o Power BI recusou por j\u00e1 ter uma atualiza\u00e7\u00e3o rodando, a pr\u00f3xima tentativa resolve.',
+    nuvem: 'No Power Automate (make.powerautomate.com \u203a Meus fluxos), abra a execu\u00e7\u00e3o que falhou: ela mostra qual a\u00e7\u00e3o parou e por qu\u00ea.',
+    atrasado: 'No Power Automate, veja se o fluxo continua ligado e se a assinatura est\u00e1 ativa. Para rodar agora, abra o fluxo e toque em Executar.',
+    lento: 'No computador dos rob\u00f4s, veja se alguma janela ficou esperando resposta. Pelo Power Automate d\u00e1 para cancelar a execu\u00e7\u00e3o e rodar de novo.',
+    suspenso: 'No Power Automate, abra o fluxo: o aviso no alto da p\u00e1gina diz por que ele foi suspenso e o que corrigir antes de ligar de novo.'
+  };
+  function renderRobo() {
+    var r = roboDe(m.fichaId), agora = agoraMs(), itens = itensDo('ferramentas'), it = null, i;
+    if (!r) { fecharFicha(); return; }
+    for (i = 0; i < itens.length; i++) { if (itens[i].rb === r.id) { it = itens[i]; } }
+    m.fichaItem = it; // o alerta do rob\u00f4 pode ter aparecido ou sumido desde que a ficha abriu
+    var sit = sitRobo(r), ate = it ? silenciado(it) : 0, h = r.h || [], mod = quando(r.mod), prox = quando(r.prox);
+    var tipo = r.tipo === 'desktop' ? 'rob\u00f4 de desktop' + (r.passos > 1 ? ' (' + r.passos + ' passos)' : '') : (r.tipo === 'pbi' ? 'manda atualizar ' + (r.alvo ? 'o modelo ' + r.alvo : 'um modelo') + ' no Power BI' : 'fluxo de nuvem');
+    var s = '<div class="ptit">Rob\u00f4 ' + U.esc(r.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : sit[0]) + '">' + (ate ? 'SILENCIADO' : sit[1]) + '</span></div>';
+    s += '<div class="mfsub">' + U.esc('Power Automate \u00b7 ' + tipo + (mod !== null ? ' \u00b7 alterado pela \u00faltima vez em ' + U.pad2(local(mod).getDate()) + '/' + U.pad2(local(mod).getMonth() + 1) + '/' + local(mod).getFullYear() : '')) + '</div>';
+    // quatro n\u00fameros
+    var u = h[0], ultV = '\u2014', ultS = '';
+    if (u) {
+      var ini = u[1] * 1000;
+      if (u[0] === 'U') { ultV = 'rodando'; ultS = 'desde ' + diaTxt(ini) + ' (h\u00e1 ' + durCurta(agora - ini) + ')'; }
+      else { ultV = diaTxt(ini); ultS = (u[0] === 'C' ? 'deu certo \u00b7 levou ' : (u[0] === 'F' ? 'falhou depois de ' : 'cancelada depois de ')) + durLonga(u[2]); }
+    }
+    s += bloco(18, '\u00daLTIMA EXECU\u00c7\u00c3O', ultV, ultS);
+    s += bloco(266, 'AGENDA', r.ag ? r.ag.charAt(0).toUpperCase() + r.ag.slice(1) : '\u2014', r.estado === 'off' ? 'desligado: n\u00e3o est\u00e1 rodando' : (prox !== null ? 'pr\u00f3xima: ' + diaTxt(prox) : ''));
+    s += bloco(514, 'DURA\u00c7\u00c3O NORMAL', r.medS ? durLonga(r.medS) : '\u2014', r.medS ? 'das execu\u00e7\u00f5es que deram certo' : '');
+    s += bloco(762, 'DERAM CERTO', r.n ? r.ok + ' de ' + r.n : '\u2014', r.n ? 'sem contar as canceladas' : '');
+    // hist\u00f3rico
+    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS ' + h.length + ' EXECU\u00c7\u00d5ES \u00b7 a altura \u00e9 o tempo que levou \u00b7 vermelho = falhou \u00b7 \u00e2mbar = cancelada \u00b7 azul = rodando</div>';
+    s += '<div class="mfbar">' + barras(h, 20, 40, 7, 84) + '</div>';
+    if (h.length) { s += '<div class="mfcap" style="left:18px">' + diaTxt(h[h.length - 1][1] * 1000) + '</div><div class="mfcap" style="right:18px;text-align:right">' + diaTxt(h[0][1] * 1000) + '</div>'; }
+    // o que o Monitor viu (sem repetir o que j\u00e1 est\u00e1 nos quatro n\u00fameros) e o que fazer
+    var ps = partes(r.det), viu = [], ruim = r.estado === 'erro' || r.estado === 'alerta', pode = !!it && podeSilenciar(it), limite = pode ? 498 : 566;
+    for (i = 0; i < ps.length; i++) { if (!/^(Roda |Leva uns |Sem agenda marcada|\d+ de \d+ deram certo)/.test(ps[i])) { viu.push(ps[i]); } }
+    var dica = ruim ? (r.sit === 'falhou' ? (DICA_ROBO[r.tipo] || DICA_ROBO.nuvem) : (DICA_ROBO[r.sit] || '')) : '';
+    if (!ruim && r.estado !== 'off') {
+      // em dia: o que ajuda a ler o hist\u00f3rico acima
+      var nF = 0, ultF = 0;
+      for (i = 0; i < h.length; i++) { if (h[i][0] === 'F') { nF++; if (!ultF) { ultF = h[i][1] * 1000; } } }
+      viu.push(nF ? nF + ' ' + U.plural(nF, 'falha', 'falhas') + ' nas \u00faltimas ' + h.length + ' execu\u00e7\u00f5es; a mais recente, ' + diaTxt(ultF) : 'Nenhuma falha nas \u00faltimas ' + h.length + ' execu\u00e7\u00f5es');
+      if (r.tipo === 'desktop') { viu.push('Rob\u00f4 de desktop: precisa do computador dos rob\u00f4s ligado, com a sess\u00e3o do Windows aberta'); }
+      else if (r.tipo === 'pbi') { viu.push('S\u00f3 faz o pedido ao Power BI; se a atualiza\u00e7\u00e3o em si deu certo aparece na ficha do modelo' + (r.alvo ? ' ' + r.alvo : '')); }
+    }
+    if (!viu.length) { viu = ps; }
+    s += '<div class="mfx" style="top:320px;max-height:' + (limite - 320) + 'px">';
+    if (viu.length) {
+      s += '<div class="mfl2">' + (ruim ? 'O QUE O MONITOR VIU' : (r.estado === 'off' ? 'SITUA\u00c7\u00c3O' : 'COMO ELE VEM RODANDO')) + '</div>';
+      for (i = 0; i < viu.length && i < (dica ? 3 : 5); i++) { s += '<div class="mfx1"><b>\u203a</b> ' + U.esc(viu[i]) + '</div>'; }
+    }
+    if (dica) { s += '<div class="mfl2' + (viu.length ? ' esp' : '') + '">O QUE FAZER</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
+    s += '</div>';
+    if (pode) { s += blocoSilencio(it, ate); }
+    else if (!ruim) { s += '<div class="mfnota" style="top:540px">O Monitor s\u00f3 l\u00ea: se o fluxo est\u00e1 ligado, a agenda e o resultado das execu\u00e7\u00f5es. N\u00e3o liga, desliga, edita nem dispara nada.</div>'; }
+    U.html('mFichaCorpo', s);
+  }
+  /* VM do Google: os quatro sinais (disponibilidade, tempo de resposta, consultas e fila), as \u00faltimas 24 horas e o que \u00e9 conferido */
+  function estadoDe(chave) {
+    var itens = itensDo('ferramentas'), i;
+    for (i = 0; i < itens.length; i++) { if (itens[i].chave === chave) { return itens[i]; } }
+    return null;
+  }
+  function renderVm(it) {
+    var v = it.vm, d = m.dados, agora = agoraMs(), est = NOME_EST[it.estado] || NOME_EST.info, ate = silenciado(it), t = quando(it.quando), desde = quando(v.desde), ger = d ? quando(d.gerado) : null, i, k;
+    var s = '<div class="ptit">' + U.esc(it.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : est[0]) + '">' + (ate ? 'SILENCIADO' : (it.estado === 'ok' ? 'NO AR' : est[1])) + '</span></div>';
+    s += '<div class="mfsub">' + U.esc((it.valor || '') + (it.estado !== 'ok' && t !== null ? ' \u00b7 desde ' + quandoTxt(t) + ' (' + idadeTxt(agora - t) + ')' : (desde !== null ? ' \u00b7 sem falha desde ' + quandoTxt(desde) : '')) +
+      (v.v ? ' \u00b7 API v' + v.v : '') + (v.host ? ' \u00b7 ' + v.host + (v.ip ? ' (' + v.ip + ')' : '') : '')) + '</div>';
+    var temUp = v.up !== null && v.up !== undefined;
+    s += bloco(18, 'DISPONIBILIDADE \u00b7 24 H', temUp ? pctTxt(v.up) : '\u2014', v.n ? v.n + ' ' + U.plural(v.n, 'confer\u00eancia', 'confer\u00eancias') + ' \u00b7 ' + (v.f ? v.f + ' sem resposta' : 'nenhuma sem resposta') + (v.up7 !== undefined ? ' \u00b7 7 dias: ' + pctTxt(v.up7) : '') : '');
+    s += bloco(266, 'TEMPO DE RESPOSTA', v.lat ? segTxt(v.lat[0]) : '\u2014', v.lat ? '1 em cada 10 passa de ' + segTxt(v.lat[1]) + ' \u00b7 medido do PC do coletor' : '');
+    s += bloco(514, 'CONSULTAS HOJE', String(v.hoje || 0), (v.lote ? v.lote + ' ' + U.plural(v.lote, 'nota de lote pendente', 'notas de lote pendentes') + ' \u00b7 ' : '') + 'pedidos do Protheus \u00e0 API');
+    s += bloco(762, 'FILA', v.fila ? v.fila[0] + (v.fila[1] ? ' de ' + v.fila[1] : '') : '\u2014', (v.sim ? v.sim[0] + (v.sim[1] ? ' de ' + v.sim[1] : '') + ' em andamento' : '') + (v.rec ? ' \u00b7 ' + v.rec + ' ' + U.plural(v.rec, 'recusada', 'recusadas') : ' \u00b7 nenhuma recusada'));
+    // as \u00faltimas 24 horas
+    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS 24 HORAS \u00b7 verde = respondeu sempre \u00b7 \u00e2mbar = falhou alguma vez \u00b7 vermelho = fora do ar \u00b7 escuro = sem registro</div><div class="mfvm">';
+    for (k = 0; k < 24; k++) { s += '<i style="left:' + (k * 39) + 'px;background:' + (COR_FX[String(v.fx || '').charAt(k)] || '#0e2238') + '"></i>'; }
+    s += '</div>';
+    if (ger !== null) {
+      var hFim = Math.floor(ger / 3600000);
+      for (k = 0; k < 24; k++) {
+        var hr = local((hFim - 23 + k) * 3600000).getHours();
+        if (k === 23) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:226px">agora</div>'; }
+        else if (hr % 3 === 0 && k < 22) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:226px">' + U.pad2(hr) + 'h</div>'; }
+      }
+    }
+    var pode = podeSilenciar(it), limite = pode ? 498 : 566, linhas = [], dica = dicaItem(it), rot = 'O QUE O MONITOR CONFERE';
+    if (it.estado !== 'ok') { linhas = partes(it.detalhe).slice(0, 3); rot = 'O QUE O MONITOR VIU'; }
+    else {
+      var gc = estadoDe('gc|status'), cl = estadoDe('cl|status');
+      linhas.push('A API responde: conferido a cada ' + ((d && d.pc && d.pc.intervaloMin) || 5) + ' min, de fora, sem senha nem token');
+      if (typeof v.a1 === 'number') { var a1 = local(agora + v.a1 * 86400000); linhas.push('Certificado A1 da empresa: vence em ' + U.pad2(a1.getDate()) + '/' + U.pad2(a1.getMonth() + 1) + '/' + a1.getFullYear() + ' (' + v.a1 + ' dias)'); }
+      if (typeof v.https === 'number') { linhas.push('HTTPS do dom\u00ednio: v\u00e1lido por mais ' + v.https + ' dias (o Caddy da VM renova sozinho)'); }
+      linhas.push('Google Cloud, onde a VM roda: ' + (gc ? (gc.estado === 'ok' ? 'sem incidente aberto na regi\u00e3o' : gc.valor) : 'sem leitura agora') + ' \u00b7 API do Claude, que o bot consulta: ' + (cl ? cl.valor : 'sem leitura agora'));
+      linhas.push('Endere\u00e7o, portas e rel\u00f3gio da VM: conferidos junto; viram aviso se algo sair do normal');
+    }
+    s += '<div class="mfx" style="top:256px;max-height:' + (limite - 256) + 'px"><div class="mfl2">' + rot + '</div>';
+    for (i = 0; i < linhas.length; i++) { s += '<div class="mfx1"><b>\u203a</b> ' + U.esc(linhas[i]) + '</div>'; }
+    if (dica) { s += '<div class="mfl2 esp">O QUE FAZER</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
+    s += '</div>';
+    if (pode) { s += blocoSilencio(it, ate); }
+    U.html('mFichaCorpo', s);
+  }
+  /* mapa dos 7 dias: uma linha por modelo, uma coluna por dia (o coletor guarda o registro das atualiza\u00e7\u00f5es) */
+  function renderMapa7() {
+    var d = m.dados, mods = ordenarModelos(modelosDo('bi')), ger = d ? quando(d.gerado) : null, i, k;
+    if (!mods.length || ger === null) { fecharFicha(); return; }
+    var X0 = 262, P = 84, W = 80, tot = [], tOk = 0, tF = 0, semReg = -1;
+    for (k = 0; k < 7; k++) { tot.push([0, 0, 0]); }
+    var comD7 = 0;
+    var livre = 440 - 26, alt = Math.max(14, Math.min(24, Math.floor(livre / mods.length))), cabem = Math.floor(livre / alt);
+    var lista = mods.length > cabem ? mods.slice(0, cabem - 1) : mods;
+    for (i = 0; i < mods.length; i++) {
+      var dm = mods[i].d7 && mods[i].d7.length === 7 ? mods[i].d7 : null;
+      if (dm) { comD7++; }
+      for (k = 0; k < 7; k++) { if (dm && dm[k]) { tot[k][0] += dm[k][0]; tot[k][1] += dm[k][1]; tot[k][2]++; tOk += dm[k][0]; tF += dm[k][1]; } }
+    }
+    // dia em que menos da metade dos modelos tem registro: a soma n\u00e3o quer dizer nada, e o registro ainda n\u00e3o tinha come\u00e7ado
+    for (k = 0; k < 7; k++) { if (tot[k][2] * 2 < comD7 || !tot[k][2]) { semReg = k; tot[k][2] = 0; } }
+    var s = '<div class="ptit">Os \u00faltimos 7 dias, dia a dia</div><div class="mfp"><span class="pill ' + (tF ? 'ambar' : 'verde') + '">' + tOk + ' CERTAS \u00b7 ' + tF + ' ' + (tF === 1 ? 'FALHA' : 'FALHAS') + '</span></div>';
+    s += '<div class="mfsub">Uma linha por modelo \u00b7 o n\u00famero \u00e9 quantas atualiza\u00e7\u00f5es deram certo no dia \u00b7 \u2717 = falhas \u00b7 escuro = sem atualiza\u00e7\u00e3o \u00b7 toque num modelo para abrir</div>';
+    for (k = 0; k < 7; k++) {
+      var dd = local(ger - (6 - k) * 86400000);
+      s += '<div class="mmh' + (k === 6 ? ' meia' : '') + '" style="left:' + (X0 + k * P) + 'px;width:' + W + 'px">' + (k === 6 ? 'hoje' : DIA_C[dd.getDay()] + ' ' + U.pad2(dd.getDate())) + '</div>';
+    }
+    s += '<div class="mmh meia" style="left:' + (X0 + 7 * P + 6) + 'px;width:96px;text-align:right">7 dias</div>';
+    function celula(c, x, y2, h2) {
+      if (!c) { return '<i class="mm7 sem" style="left:' + x + 'px;top:' + y2 + 'px;width:' + W + 'px;height:' + h2 + 'px;line-height:' + h2 + 'px"></i>'; }
+      var a = c[0], b = c[1], cor = b ? (a ? '#f59e0b' : '#ff7a7a') : (a ? '#2f9e68' : '#0e2238');
+      return '<i class="mm7' + (a + b ? '' : ' vazio') + '" style="left:' + x + 'px;top:' + y2 + 'px;width:' + W + 'px;height:' + h2 + 'px;line-height:' + h2 + 'px;background:' + cor + '">' + (a + b ? a + (b ? ' \u00b7 ' + b + ' \u2717' : '') : '') + '</i>';
+    }
+    function pctDe(a, b) {
+      if (!(a + b)) { return '<div class="mm7p" style="left:' + (X0 + 7 * P + 6) + 'px">\u2014</div>'; }
+      var pc = Math.floor(a / (a + b) * 1000) / 10;
+      return '<div class="mm7p' + (pc < 95 ? ' pes' : (pc < 99 ? ' ruim' : '')) + '" style="left:' + (X0 + 7 * P + 6) + 'px">' + pctTxt(pc) + '</div>';
+    }
+    var y = 96;
+    for (i = 0; i < lista.length; i++) {
+      var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', d7 = mo.d7 && mo.d7.length === 7 ? mo.d7 : null, a7 = 0, b7 = 0;
+      s += '<div class="mmrow" data-act="mon-mapa-modelo" data-arg="' + U.esc(mo.id || '') + '" style="top:' + y + 'px;height:' + alt + 'px">' +
+        '<i class="md ' + est + '" style="background:' + COR[est] + ';top:' + Math.round(alt / 2 - 4) + 'px;width:8px;height:8px;left:18px"></i>' +
+        '<div class="mmq" style="line-height:' + alt + 'px">' + U.esc(mo.nome || '') + '</div>';
+      for (k = 0; k < 7; k++) {
+        var c = d7 ? d7[k] : null;
+        if (c) { a7 += c[0]; b7 += c[1]; }
+        s += celula(c, X0 + k * P, 2, alt - 4);
+      }
+      s += '<div style="position:absolute;top:0;left:0;line-height:' + alt + 'px">' + pctDe(a7, b7) + '</div></div>';
+      y += alt;
+    }
+    if (lista.length < mods.length) { s += '<div class="mfnota" style="top:' + (y + 2) + 'px">+ ' + (mods.length - lista.length) + ' outros modelos (a lista do BI mostra todos)</div>'; y += alt; }
+    y += 8;
+    s += '<div class="mmrow tot" style="top:' + y + 'px;height:24px"><div class="mmq forte" style="line-height:24px">Todos os modelos</div>';
+    for (k = 0; k < 7; k++) { s += celula(tot[k][2] ? tot[k] : null, X0 + k * P, 2, 20); }
+    s += '<div style="position:absolute;top:0;left:0;line-height:24px">' + pctDe(tOk, tF) + '</div></div>';
+    y += 30;
+    if (semReg >= 0) {
+      var d1 = local(ger - (6 - (semReg + 1)) * 86400000);
+      s += '<div class="mfnota" style="top:' + Math.min(y + 2, 548) + 'px">O registro das atualiza\u00e7\u00f5es come\u00e7ou ' + (semReg >= 5 ? 'hoje' : DIA_C[d1.getDay()] + ' ' + U.pad2(d1.getDate()) + '/' + U.pad2(d1.getMonth() + 1)) + ': os dias anteriores ficam vazios (ou s\u00f3 com os modelos de 1 vez por dia) e entram sozinhos com o tempo.</div>';
     }
     U.html('mFichaCorpo', s);
   }
@@ -1424,8 +1899,12 @@
       U.acoes['mon-item'] = function (i) { abrirItem(i); };
       U.acoes['mon-mapa'] = abrirMapa;
       U.acoes['mon-mapa-modelo'] = function (id) { abrirModeloId(id); };
+      U.acoes['mon-abrir'] = function (chave) { abrirItemChave(chave); };
+      U.acoes['mon-abrir-modelo'] = function (id) { abrirModeloDireto(id); };
+      U.acoes['mon-robo'] = function (id) { abrirRobo(id); };
+      U.acoes['mon-ficha-alt'] = function () { if (m.fichaTipo === 'mapa') { m.mapa7 = !m.mapa7; renderFicha(); } };
       U.acoes['mon-sil'] = function (dias) {
-        if (m.fichaTipo !== 'item' || !m.fichaItem) { return; }
+        if ((m.fichaTipo !== 'item' && m.fichaTipo !== 'robo') || !m.fichaItem) { return; }
         silenciar(itemAtual(m.fichaItem), parseInt(dias, 10) || 0);
         render();
       };
