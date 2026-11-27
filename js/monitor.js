@@ -282,9 +282,11 @@
   function ordenar(itens) {
     var l = itens.slice(0), i;
     for (i = 0; i < l.length; i++) { l[i]._o = i; }
-    l.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
+    l.sort(function (a, b) { return (pesoItem(b) - pesoItem(a)) || (a._o - b._o); });
     return l;
   }
+  /* aviso de fundo (b): informa, mas n\u00e3o tira do cart\u00e3o quem mostra que est\u00e1 tudo funcionando */
+  function pesoItem(it) { return it.b && (it.estado === 'info' || it.estado === 'ok') ? 0.5 : (PESO[it.estado] || 0); }
   function linhaItem(it, primeira, agora, extra) {
     var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
     return '<div class="mi ' + est + (primeira ? ' prim' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
@@ -434,7 +436,7 @@
     for (i = 0; i < mods.length; i++) {
       var mo = mods[i], st = statusModelo(mo, agora), det;
       if (mo.estado === 'erro' || mo.estado === 'alerta' || mo.estado === 'off') { det = mo.det || ''; }
-      else { det = (mo.rit || '') + (mo.medS ? ' \u00b7 leva uns ' + durLonga(mo.medS) : '') + (mo.n ? ' \u00b7 ' + mo.ok + ' de ' + mo.n + ' deram certo' : '') + (mo.lim ? ' \u00b7 no limite do ritmo' : ''); }
+      else { det = (mo.rit || '') + (mo.medS ? ' \u00b7 leva uns ' + durLonga(mo.medS) : '') + (mo.n ? ' \u00b7 ' + mo.ok + ' de ' + mo.n + ' deram certo' : '') + (mo.lim ? ' \u00b7 no limite do ritmo' : '') + (mo.ct && (mo.ct.di || mo.ct.cal) ? ' \u00b7 data imposs\u00edvel nos dados' : ''); }
       l.push({ nome: mo.nome, valor: st.txt, detalhe: det, estado: mo.estado, quando: mo.fim, modelo: mo });
     }
     itens = ordenar(itensDo(id));
@@ -511,6 +513,27 @@
     }
     if (mo.idM) { t += ' Na pr\u00e1tica, quem abre o painel v\u00ea dado de uns ' + mo.idM + ' min' + (mo.idP ? ' (9 em cada 10 vezes, at\u00e9 ' + mo.idP + ' min)' : '') + '.'; }
     return t;
+  }
+  function milTxt(n) {
+    n = Number(n) || 0;
+    if (n >= 999500) { return String(Math.round(n / 100000) / 10).replace('.', ',') + ' mi de'; }
+    if (n >= 10000) { return Math.round(n / 1000) + ' mil'; }
+    return String(Math.round(n));
+  }
+  /* conte\u00fado do modelo (coletor 1.6): tabela que veio vazia ou encolheu, data imposs\u00edvel, calend\u00e1rio gigante */
+  function conteudoTxt(mo) {
+    var c = mo.ct, p = [], i, t;
+    if (!c) { return null; }
+    if (c.vz) { for (i = 0; i < c.vz.length; i++) { p.push('a tabela ' + c.vz[i][0] + ' veio vazia (tinha ' + milTxt(c.vz[i][1]) + ' linhas)'); } }
+    if (c.enc) { for (i = 0; i < c.enc.length; i++) { p.push('a tabela ' + c.enc[i][0] + ' encolheu de ' + milTxt(c.enc[i][1]) + ' para ' + milTxt(c.enc[i][2]) + ' linhas'); } }
+    if (c.di) {
+      for (i = 0; i < c.di.length && i < 2; i++) { p.push('data imposs\u00edvel em ' + c.di[i][0] + ' \u00b7 ' + c.di[i][1] + ': ' + c.di[i][2]); }
+      if (c.diN > 2) { p.push('e mais ' + (c.diN - 2)); }
+    }
+    if (c.cal) { for (i = 0; i < c.cal.length; i++) { p.push('o calend\u00e1rio ' + c.cal[i][0] + ' tem ' + milTxt(c.cal[i][1]) + ' linhas'); } }
+    if (p.length) { t = p.join('; '); return { ruim: true, txt: t.charAt(0).toUpperCase() + t.slice(1) + '.' }; }
+    var lido = quando(c.t), mud = quando(c.mud);
+    return { ruim: false, txt: c.nt + ' tabelas e ' + milTxt(c.nl) + ' linhas' + (lido !== null ? ' \u00b7 conferido ' + quandoTxt(lido) : '') + ' \u00b7 nenhuma tabela vazia, nenhuma data imposs\u00edvel' + (mud !== null ? ' \u00b7 mudou pela \u00faltima vez ' + quandoTxt(mud) : '') };
   }
   function bloco(x, rotulo, valor, sub) {
     return '<div class="mfb" style="left:' + x + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv">' + U.esc(valor) + '</div><div class="mfs">' + U.esc(sub || '') + '</div></div>';
@@ -589,8 +612,17 @@
           y += 16 + 21 * DICAS_LIMITE.length + 8;
         }
       }
+      // conte\u00fado do modelo: quando s\u00f3 cabe um bloco, o achado no conte\u00fado vale mais que a \u00faltima falha
+      var ct = conteudoTxt(mo), umSo = 572 - y < 100;
+      var mostraCt = ct && (ct.ruim || !umSo), mostraFalha = !(umSo && mostraCt);
+      if (mostraCt) {
+        var duas = ct.ruim && !umSo;
+        s += '<div class="mfl' + (ct.ruim ? ' ambar' : '') + '" style="left:18px;top:' + y + 'px">' + (ct.ruim ? 'CONTE\u00daDO DO MODELO \u00b7 VALE CONFERIR' : 'CONTE\u00daDO DO MODELO') + '</div><div class="mft menor' + (duas ? '' : ' uma') + (ct.ruim ? '' : ' cinza') + '" style="top:' + (y + 16) + 'px' + (y > 470 ? ';width:810px' : '') + '">' + U.esc(ct.txt) + '</div>';
+        y += duas ? 66 : 45;
+      }
       var estreito = '', uma = '';
-      if (y > 500) { estreito = ';width:810px'; uma = ' uma'; } // l\u00e1 embaixo sobra uma linha s\u00f3, e ela n\u00e3o pode passar por baixo do bot\u00e3o Voltar
+      if (y > 470) { estreito = ';width:810px'; uma = ' uma'; } // l\u00e1 embaixo sobra uma linha s\u00f3, e ela n\u00e3o pode passar por baixo do bot\u00e3o Voltar
+      if (!mostraFalha) { /* o bloco de conte\u00fado ocupou o lugar */ } else
       if (mo.uf) {
         var tf = quando(mo.uf.t);
         s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') + '</div>';
