@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var VERSAO = '1.8.1';
+  var VERSAO = '1.9';
   var LS = 'cockpit.v1';
   var TODAS_ABAS = ['monitor', 'agora', 'ritmo', 'quadro', 'foco'];
   var ABAS = [];

@@ -1,5 +1,5 @@
 /* Central \u00b7 Monitor (aba do Cockpit, vers\u00e3o web para o Safari do iPad 2).
-   Busca pela internet do pr\u00f3prio iPad o status que o coletor do PC publica no GitHub,
+   Busca pela internet do pr\u00f3prio iPad o status que o coletor (no PC ou, desde a 1.9, na VM do Cockpit) publica no GitHub,
    abre com a chave da Central (AES-256-CTR, chave = SHA-256 de "central:" + chave digitada) e mostra:
    - o painel de sa\u00fade dos modelos do Power BI (ritmo, hist\u00f3rico, quem saiu do ritmo);
    - as ferramentas e as fontes (gateway, banco, planilhas);
@@ -141,9 +141,9 @@
         m.rede = 'online';
         m.msg = '';
         gravar(LS_ULTIMO, JSON.stringify({ dados: m.dados, recebidoEm: m.recebidoEm }));
-      } catch (e2) { m.rede = 'chave'; m.msg = 'A chave salva n\u00e3o abre os dados do PC.'; }
+      } catch (e2) { m.rede = 'chave'; m.msg = 'A chave salva n\u00e3o abre os dados do coletor.'; }
     } else if (status === 404) {
-      m.rede = 'semdados'; m.msg = 'O PC ainda n\u00e3o publicou o status.';
+      m.rede = 'semdados'; m.msg = 'O coletor ainda n\u00e3o publicou o status.';
     } else {
       m.rede = 'offline';
       m.msg = status > 0 ? 'Erro ' + status + ' ao buscar o status.' : (status < 0 ? 'O status demorou demais para chegar.' : 'Sem internet, ou o certificado do site n\u00e3o foi aceito.');
@@ -236,6 +236,7 @@
     }
     return c;
   }
+  function naVM() { return !!(m.dados && m.dados.pc && m.dados.pc.onde === 'vm'); }
   function dadosVelhos() {
     var d = m.dados, gerado = d ? quando(d.gerado) : null;
     if (gerado === null) { return false; }
@@ -320,12 +321,12 @@
   function renderHero() {
     var d = m.dados, agora = agoraMs(), gerado = d ? quando(d.gerado) : null, e = estadoGeral(), c = e.c;
     var sim, tit, sub;
-    if (!d) { sim = '?'; tit = m.chave ? 'Esperando os dados do PC' : 'Monitor sem chave'; }
+    if (!d) { sim = '?'; tit = m.chave ? 'Esperando os dados do coletor' : 'Monitor sem chave'; }
     else if (e.velho) {
       sim = '!';
       if (ghRecente() && gh.ruim) { tit = 'GitHub inst\u00e1vel \u00b7 dados de ' + hora(gerado); }
       else if (m.rede === 'offline') { tit = ghRecente() ? 'iPad n\u00e3o abre o status' : 'iPad sem internet ' + idadeTxt(agora - gerado); }
-      else { tit = 'O PC parou de enviar ' + idadeTxt(agora - gerado); }
+      else { tit = (naVM() ? 'A VM do Cockpit parou de enviar ' : 'O PC parou de enviar ') + idadeTxt(agora - gerado); }
     }
     else if (c.erro) {
       // um problema s\u00f3 (ou v\u00e1rios com a mesma causa): o topo j\u00e1 diz qual \u00e9
@@ -341,14 +342,14 @@
     U.txt('mSem', sim);
     U.txt('mTit', tit);
     if (d && gerado !== null) {
-      sub = 'Dados do PC' + (d.pc && d.pc.nome ? ' ' + d.pc.nome : '') + ' de ' + hora(gerado) + ' (' + idadeTxt(agora - gerado) + ')';
+      sub = (naVM() ? 'Dados da VM do Cockpit' : 'Dados do PC' + (d.pc && d.pc.nome ? ' ' + d.pc.nome : '')) + ' de ' + hora(gerado) + ' (' + idadeTxt(agora - gerado) + ')';
       var vt = voltaTxt();
       if (gerado - agora > 300000) { sub = 'O rel\u00f3gio do iPad est\u00e1 atrasado: ligue Ajustes \u203a Geral \u203a Data e Hora \u203a Autom\u00e1tico'; }
       else if (e.velho && ghRecente() && gh.ruim) { sub = 'githubstatus.com: ' + gh.txt; }
       else if (e.velho && ghRecente() && m.rede === 'offline') {
         sub = m.ultStatus === 0 ? 'Internet e GitHub ok: prov\u00e1vel falta da raiz Let\u2019s Encrypt no iPad' : 'Internet e GitHub ok \u00b7 ' + m.msg;
       }
-      else if (e.velho && ghRecente() && m.rede === 'online') { sub = 'GitHub normal: o PC est\u00e1 desligado, sem internet ou o coletor parou'; }
+      else if (e.velho && ghRecente() && m.rede === 'online') { sub = naVM() ? 'GitHub normal: a VM do Cockpit parou de publicar (veja no console do Google Cloud)' : 'GitHub normal: o PC est\u00e1 desligado, sem internet ou o coletor parou'; }
       else if (m.rede !== 'online' && m.msg) { sub += ' \u00b7 ' + m.msg; }
       else if (vt) { sub = vt; }
     } else {
@@ -1122,6 +1123,9 @@
   var NOME_EST = { ok: ['verde', 'OK'], alerta: ['ambar', 'ALERTA'], erro: ['vermelho', 'PROBLEMA'], info: ['ciano', 'AVISO'], off: ['cinza', 'PARADO'] };
   /* o que fazer, pelo tipo do item (chave que o coletor publica); s\u00f3 aparece quando o item n\u00e3o est\u00e1 verde */
   var DICA_ITEM = [
+    [/^coletor$/, '\u00c9 a VM que roda o Cockpit, no Google Cloud (projeto Cockpit Central). Se ela parar, o iPad avisa que os dados pararam. Para reiniciar: console do Google Cloud \u203a Compute Engine \u203a cockpit \u203a Redefinir.'],
+    [/^coletor\|reinicio/, 'Nada a fazer: a VM reinicia sozinha de madrugada para terminar a atualiza\u00e7\u00e3o de seguran\u00e7a, e o Cockpit volta em seguida.'],
+    [/^lembrete\|/, 'Fa\u00e7a o que est\u00e1 escrito acima antes da data. O aviso some quando a data passar ou quando o lembrete sair da configura\u00e7\u00e3o.'],
     [/^vm\|api/, 'No console do Google Cloud (Compute Engine \u203a Inst\u00e2ncias de VM), veja se a VM est\u00e1 ligada. Se estiver, abra o SSH e rode: sudo systemctl restart caddy bot-api bot-whatsapp.'],
     [/^vm\|https/, 'Na VM (SSH): sudo systemctl restart caddy, para ele tentar renovar o certificado na hora. O dom\u00ednio do DuckDNS precisa apontar para o IP da VM.'],
     [/^vm\|relogio/, 'Na VM (SSH): sudo timedatectl set-ntp true, para o rel\u00f3gio voltar a acertar sozinho.'],
@@ -1353,7 +1357,7 @@
       (v.v ? ' \u00b7 API v' + v.v : '') + (v.host ? ' \u00b7 ' + v.host + (v.ip ? ' (' + v.ip + ')' : '') : '')) + '</div>';
     var temUp = v.up !== null && v.up !== undefined;
     s += bloco(18, 'DISPONIBILIDADE \u00b7 24 H', temUp ? pctTxt(v.up) : '\u2014', v.n ? v.n + ' ' + U.plural(v.n, 'confer\u00eancia', 'confer\u00eancias') + ' \u00b7 ' + (v.f ? v.f + ' sem resposta' : 'nenhuma sem resposta') + (v.up7 !== undefined ? ' \u00b7 7 dias: ' + pctTxt(v.up7) : '') : '');
-    s += bloco(266, 'TEMPO DE RESPOSTA', v.lat ? segTxt(v.lat[0]) : '\u2014', v.lat ? '1 em cada 10 passa de ' + segTxt(v.lat[1]) + ' \u00b7 medido do PC do coletor' : '');
+    s += bloco(266, 'TEMPO DE RESPOSTA', v.lat ? segTxt(v.lat[0]) : '\u2014', v.lat ? '1 em cada 10 passa de ' + segTxt(v.lat[1]) + (naVM() ? ' \u00b7 medido de fora, da VM do Cockpit' : ' \u00b7 medido do PC do coletor') : '');
     if (bot && bot.n) {
       s += bloco(514, 'USO HOJE', bot.n[0] + ' ' + U.plural(bot.n[0], 'nota', 'notas'), 'no WhatsApp \u00b7 ' + (v.hoje || 0) + ' ' + U.plural(v.hoje || 0, 'consulta', 'consultas') + ' da API \u00b7 no m\u00eas: ' + bot.n[1] + ' notas' + (typeof v.mes === 'number' ? ' e ' + v.mes + ' consultas' : ''));
     } else {
@@ -1715,8 +1719,8 @@
       var g = quando(d.gerado), semNet = m.rede === 'offline';
       lista.push({
         chave: 'parado|' + d.gerado, inc: 0, grupo: 'MONITOR', junto: 0, quando: d.gerado, modelo: false,
-        nome: semNet ? 'O iPad est\u00e1 sem internet' : 'O PC parou de enviar', valor: idadeTxt(agoraMs() - g),
-        detalhe: 'Os dados est\u00e3o parados desde ' + hora(g) + (semNet ? '. Confira o Wi-Fi do iPad.' : '. Confira se o PC est\u00e1 ligado e com a Central rodando.')
+        nome: semNet ? 'O iPad est\u00e1 sem internet' : (naVM() ? 'A VM do Cockpit parou de enviar' : 'O PC parou de enviar'), valor: idadeTxt(agoraMs() - g),
+        detalhe: 'Os dados est\u00e3o parados desde ' + hora(g) + (semNet ? '. Confira o Wi-Fi do iPad.' : (naVM() ? '. Confira a VM cockpit no console do Google Cloud (Compute Engine).' : '. Confira se o PC est\u00e1 ligado e com a Central rodando.'))
       });
     }
     return lista;
@@ -1953,7 +1957,7 @@
     if (!on) { return; }
     var e = estadoGeral(), txt;
     if (!m.dados) { txt = 'sem dados'; }
-    else if (e.velho) { txt = 'sem receber dados do PC'; }
+    else if (e.velho) { txt = naVM() ? 'sem receber dados da VM' : 'sem receber dados do PC'; }
     else if (e.c.erro) { txt = e.c.erro + ' ' + U.plural(e.c.erro, 'problema', 'problemas'); }
     else if (e.c.alerta) { txt = e.c.alerta + ' ' + U.plural(e.c.alerta, 'ponto de aten\u00e7\u00e3o', 'pontos de aten\u00e7\u00e3o'); }
     else { txt = 'tudo certo'; }
@@ -1987,7 +1991,7 @@
     var inp = U.$('mChave'), c = normalizar(inp.value);
     if (c.length !== 24) { U.txt('mSetupMsg', 'A chave tem 24 letras e n\u00fameros (6 grupos de 4). Confira e tente de novo.'); return; }
     if (m.env) {
-      try { abrir(m.env, c); } catch (e) { U.txt('mSetupMsg', 'Essa chave n\u00e3o abre os dados do PC. Confira letra por letra.'); return; }
+      try { abrir(m.env, c); } catch (e) { U.txt('mSetupMsg', 'Essa chave n\u00e3o abre os dados do coletor. Confira letra por letra.'); return; }
     }
     m.chave = c;
     gravar(LS_CHAVE, c);
