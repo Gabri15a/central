@@ -316,6 +316,8 @@
     var ini = quando(mo.ini), fim = quando(mo.fim), prev = quando(mo.prev);
     if (mo.sit === 'ok') { return { txt: fim !== null ? quandoTxt(fim) : (mo.txt || ''), cls: '' }; }
     if (mo.sit === 'rodando') {
+      // passou do pr\u00f3prio intervalo: o hor\u00e1rio seguinte da agenda est\u00e1 sendo pulado
+      if (intervaloS(mo) && ini !== null && agora - ini >= intervaloS(mo) * 1000) { return { txt: 'atualizando ' + durCurta(agora - ini), cls: 'alerta' }; }
       if (prev !== null && agora > prev + 60000) { return { txt: 'terminando\u2026', cls: 'azul' }; }
       return { txt: ini !== null && mo.medS >= 300 ? 'atualizando ' + durCurta(agora - ini) : 'atualizando', cls: 'azul' };
     }
@@ -324,15 +326,19 @@
     return { txt: mo.txt || '', cls: mo.estado === 'off' ? 'off' : mo.estado };
   }
   var COR_BARRA = { C: '#2f9e68', F: '#ff7a7a', X: '#f59e0b', U: '#7fc4ff', D: '#4b6284' };
-  /* barrinhas das \u00faltimas atualiza\u00e7\u00f5es: a mais nova \u00e0 direita; altura = tempo que levou; vermelho = falhou */
-  function barras(h, quantas, larg, vao, altMax) {
-    var l = (h || []).slice(0, quantas), max = 1, i, s = '';
+  /* intervalo da agenda em segundos, s\u00f3 para quem tem hor\u00e1rio marcado v\u00e1rias vezes por dia (o coletor manda os hor\u00e1rios pulados) */
+  function intervaloS(mo) { return mo && mo.pul && mo.cad && mo.cad <= 180 ? Math.round(mo.cad * 60) : 0; }
+  /* barrinhas das \u00faltimas atualiza\u00e7\u00f5es: a mais nova \u00e0 direita; altura = tempo que levou; vermelho = falhou;
+     amarelo = deu certo, mas levou quase o intervalo inteiro (limS); escMin = a escala vai pelo menos at\u00e9 esse tempo */
+  function barras(h, quantas, larg, vao, altMax, limS, escMin) {
+    var l = (h || []).slice(0, quantas), max = escMin || 1, i, s = '';
     for (i = 0; i < l.length; i++) { if (l[i][2] > max) { max = l[i][2]; } }
     for (i = 0; i < l.length; i++) {
       var e = l[i], rodando = e[0] === 'U';
       var alt = rodando ? altMax : Math.max(3, Math.round(altMax * e[2] / max));
       var x = (quantas - 1 - i) * (larg + vao);
-      s += '<i' + (rodando ? ' class="rod"' : '') + ' style="left:' + x + 'px;height:' + alt + 'px;width:' + larg + 'px;background:' + (COR_BARRA[e[0]] || '#4b6284') + '"></i>';
+      var cor = e[0] === 'C' && limS && e[2] >= 0.9 * limS ? '#f59e0b' : (COR_BARRA[e[0]] || '#4b6284');
+      s += '<i' + (rodando ? ' class="rod"' : '') + ' style="left:' + x + 'px;height:' + alt + 'px;width:' + larg + 'px;background:' + cor + '"></i>';
     }
     return s;
   }
@@ -354,19 +360,22 @@
     var s = cabeca(g.nome + (pasta ? ' \u00b7 ' + pasta.toUpperCase() : ''), pill);
     var res = '', dia = '';
     if (r) {
-      res = r.ok + ' de ' + r.total + ' no ritmo';
-      if (r.rod) { res += ' \u00b7 ' + r.rod + ' atualizando agora'; }
-      if (r.parados) { res += ' \u00b7 ' + r.parados + ' ' + U.plural(r.parados, 'parado', 'parados'); }
+      var limTxt = r.lim ? ' \u00b7 ' + r.lim + ' no limite' : '';
+      var rodTxt = r.rod ? ' \u00b7 ' + r.rod + ' atualizando' + (limTxt ? '' : ' agora') : '';
+      var parTxt = r.parados ? ' \u00b7 ' + r.parados + ' ' + U.plural(r.parados, 'parado', 'parados') : '';
+      res = r.ok + ' de ' + r.total + ' no ritmo' + limTxt + rodTxt + parTxt;
+      if (res.length > 44) { res = r.ok + ' no ritmo' + limTxt + rodTxt + parTxt; }
       if (r.h24 && (r.h24[0] || r.h24[1])) { dia = '24h: ' + r.h24[0] + ' certas \u00b7 ' + r.h24[1] + ' ' + U.plural(r.h24[1], 'falha', 'falhas'); }
     }
     s += '<div class="mres">' + U.esc(res) + '</div><div class="mres24' + (r && r.h24 && r.h24[1] ? ' ruim' : '') + '">' + U.esc(dia) + '</div><div class="mgrade">';
     for (i = 0; i < lista.length; i++) {
       var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora);
-      s += '<div class="mm ' + est + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
-        '<div class="mmb">' + barras(mo.h, 12, 5, 2, 17) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
+      s += '<div class="mm ' + est + '"><i class="md ' + est + (mo.lim && est === 'ok' ? ' lim' : '') + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
+        '<div class="mmb">' + barras(mo.h, 12, 5, 2, 17, intervaloS(mo)) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
     }
     s += '</div>';
-    s += '<div class="mmais">' + (mods.length > lista.length ? '+ ' + (mods.length - lista.length) + ' outros modelos \u00b7 ' : '') + 'toque para abrir a ficha de cada modelo</div>';
+    s += '<div class="mmais">' + (mods.length > lista.length ? '+ ' + (mods.length - lista.length) + ' outros modelos \u00b7 ' : '') +
+      (r && r.lim ? 'anel amarelo = no limite do ritmo \u00b7 toque no modelo para ver a ficha' : 'toque para abrir a ficha de cada modelo') + '</div>';
     U.html('mG-' + g.id, s);
   }
 
@@ -425,7 +434,7 @@
     for (i = 0; i < mods.length; i++) {
       var mo = mods[i], st = statusModelo(mo, agora), det;
       if (mo.estado === 'erro' || mo.estado === 'alerta' || mo.estado === 'off') { det = mo.det || ''; }
-      else { det = (mo.rit || '') + (mo.medS ? ' \u00b7 leva uns ' + durLonga(mo.medS) : '') + (mo.n ? ' \u00b7 ' + mo.ok + ' de ' + mo.n + ' deram certo' : ''); }
+      else { det = (mo.rit || '') + (mo.medS ? ' \u00b7 leva uns ' + durLonga(mo.medS) : '') + (mo.n ? ' \u00b7 ' + mo.ok + ' de ' + mo.n + ' deram certo' : '') + (mo.lim ? ' \u00b7 no limite do ritmo' : ''); }
       l.push({ nome: mo.nome, valor: st.txt, detalhe: det, estado: mo.estado, quando: mo.fim, modelo: mo });
     }
     itens = ordenar(itensDo(id));
@@ -481,6 +490,28 @@
     falhou: ['vermelho', 'FALHOU'], tentando: ['ambar', 'TENTANDO DE NOVO'], atrasado: ['ambar', 'ATRASADO'], desligada: ['vermelho', 'AGENDA DESLIGADA'],
     cancelada: ['ambar', 'CANCELADA'], velho: ['ambar', 'SEM ATUALIZAR'], parado: ['cinza', 'PARADO'], nunca: ['cinza', 'NUNCA ATUALIZOU'], semleitura: ['ambar', 'SEM LEITURA']
   };
+  var DICAS_LIMITE = [
+    'Atualiza\u00e7\u00e3o incremental: recarregar s\u00f3 os meses recentes, em vez da tabela inteira a cada vez.',
+    'Tirar do modelo as colunas e tabelas que o relat\u00f3rio n\u00e3o usa.',
+    'Se dado de 1 hora servir, passar a agenda para de hora em hora: metade da carga no gateway e nenhum hor\u00e1rio pulado.'
+  ];
+  function cadTxt(min) {
+    if (!(min > 0)) { return ''; }
+    if (min < 90) { return Math.round(min) + ' min'; }
+    var hh = Math.floor(min / 60), mm = Math.round(min % 60);
+    return hh + 'h' + (mm ? U.pad2(mm) : '');
+  }
+  /* quanto do intervalo a atualiza\u00e7\u00e3o ocupa, hor\u00e1rios pulados e a idade real do dado (vem do coletor 1.5) */
+  function apertoTxt(mo) {
+    if (!mo.p90S || !mo.medS || !mo.cad || mo.cad > 180) { return ''; }
+    var t = 'Leva em geral ' + durLonga(mo.medS) + ' de cada ' + cadTxt(mo.cad) + '; 1 em cada 10 passa de ' + durLonga(mo.p90S) + '.';
+    if (mo.pul) {
+      if (mo.pul[0]) { t += ' Pulou ' + mo.pul[0] + ' dos \u00faltimos ' + mo.pul[1] + ' hor\u00e1rios' + (mo.pul[2] ? ' (' + mo.pul[2] + ' com a anterior ainda rodando)' : '') + '.'; }
+      else { t += ' Nenhum hor\u00e1rio pulado nos \u00faltimos ' + mo.pul[1] + '.'; }
+    }
+    if (mo.idM) { t += ' Na pr\u00e1tica, quem abre o painel v\u00ea dado de uns ' + mo.idM + ' min' + (mo.idP ? ' (9 em cada 10 vezes, at\u00e9 ' + mo.idP + ' min)' : '') + '.'; }
+    return t;
+  }
   function bloco(x, rotulo, valor, sub) {
     return '<div class="mfb" style="left:' + x + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv">' + U.esc(valor) + '</div><div class="mfs">' + U.esc(sub || '') + '</div></div>';
   }
@@ -513,8 +544,15 @@
     s += bloco(762, 'DERAM CERTO', conf, confSub);
     // hist\u00f3rico
     var h = mo.h || [];
-    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS ' + h.length + ' ATUALIZA\u00c7\u00d5ES \u00b7 a altura \u00e9 o tempo que levou \u00b7 vermelho = falhou</div>';
-    s += '<div class="mfbar">' + barras(h, 20, 40, 7, 84) + '</div>';
+    var limS = intervaloS(mo), maxH = limS, hi;
+    for (hi = 0; hi < h.length && hi < 20; hi++) { if (h[hi][2] > maxH) { maxH = h[hi][2]; } }
+    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS ' + h.length + ' ATUALIZA\u00c7\u00d5ES \u00b7 a altura \u00e9 o tempo que levou \u00b7 vermelho = falhou' + (limS ? ' \u00b7 amarelo = quase o intervalo todo' : '') + '</div>';
+    s += '<div class="mfbar">' + barras(h, 20, 40, 7, 84, limS, limS);
+    if (limS) {
+      var yLim = Math.round(84 * limS / maxH);
+      s += '<b class="mflim" style="bottom:' + yLim + 'px"></b><span class="mflimt" style="bottom:' + (yLim + 3) + 'px">' + cadTxt(mo.cad) + ' \u00b7 o intervalo</span>';
+    }
+    s += '</div>';
     if (h.length) {
       s += '<div class="mfcap" style="left:18px">' + quandoTxt(h[h.length - 1][1] * 1000) + '</div><div class="mfcap" style="right:18px;text-align:right">' + quandoTxt(h[0][1] * 1000) + '</div>';
     }
@@ -538,11 +576,27 @@
         for (i = 0; i < mo.dica.length && i < 3; i++) { s += '<div><b>' + (i + 1) + '.</b> ' + U.esc(mo.dica[i]) + '</div>'; }
         s += '</div>';
       }
-    } else if (mo.uf) {
-      var tf = quando(mo.uf.t);
-      s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft" style="top:' + (y + 16) + 'px">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') + '</div>';
     } else {
-      s += '<div class="mfl" style="left:18px;top:' + y + 'px">SEM FALHA NO HIST\u00d3RICO</div><div class="mft cinza" style="top:' + (y + 16) + 'px">Nenhuma das \u00faltimas ' + (mo.n || 0) + ' atualiza\u00e7\u00f5es falhou.</div>';
+      // folga no ritmo: o modelo pode n\u00e3o falhar nunca e mesmo assim entregar dado velho
+      var ap = apertoTxt(mo);
+      if (ap) {
+        s += '<div class="mfl' + (mo.lim ? ' ambar' : '') + '" style="left:18px;top:' + y + 'px">' + (mo.lim ? 'NO LIMITE DO RITMO' : 'FOLGA NO RITMO') + '</div><div class="mft menor' + (mo.lim ? '' : ' cinza') + '" style="top:' + (y + 16) + 'px">' + U.esc(ap) + '</div>';
+        y += 62;
+        if (mo.lim) {
+          s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE FAZER</div><div class="mfd" style="top:' + (y + 16) + 'px">';
+          for (i = 0; i < DICAS_LIMITE.length; i++) { s += '<div><b>' + (i + 1) + '.</b> ' + U.esc(DICAS_LIMITE[i]) + '</div>'; }
+          s += '</div>';
+          y += 16 + 21 * DICAS_LIMITE.length + 8;
+        }
+      }
+      var estreito = '', uma = '';
+      if (y > 500) { estreito = ';width:810px'; uma = ' uma'; } // l\u00e1 embaixo sobra uma linha s\u00f3, e ela n\u00e3o pode passar por baixo do bot\u00e3o Voltar
+      if (mo.uf) {
+        var tf = quando(mo.uf.t);
+        s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') + '</div>';
+      } else {
+        s += '<div class="mfl" style="left:18px;top:' + y + 'px">SEM FALHA NO HIST\u00d3RICO</div><div class="mft cinza' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">Nenhuma das \u00faltimas ' + (mo.n || 0) + ' atualiza\u00e7\u00f5es falhou.</div>';
+      }
     }
     U.html('mFichaCorpo', s);
   }

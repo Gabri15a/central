@@ -61,6 +61,8 @@ body { position: relative; }
 .mm { position: relative; height: 27px; border-top: 1px solid #0b1b2e; -webkit-box-sizing: border-box; box-sizing: border-box; }
 .mm.erro { background: rgba(255, 122, 122, 0.12); } .mm.alerta { background: rgba(245, 158, 11, 0.09); }
 .mm .md { top: 9px; width: 8px; height: 8px; border-radius: 4px; }
+/* no limite do ritmo: bolinha verde com anel amarelo (não falha, mas quase não dá conta do intervalo) */
+.mm .md.lim { box-shadow: 0 0 0 2px #07111f, 0 0 0 4px #f59e0b; }
 .mmn { position: absolute; left: 28px; top: 5px; width: 206px; font-size: 13px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mmb { position: absolute; left: 242px; top: 5px; width: 84px; height: 17px; }
 .mmb i, .mfbar i { position: absolute; bottom: 0; display: block; border-radius: 1px; }
@@ -175,6 +177,11 @@ body { position: relative; }
 .mffx i { position: absolute; top: 0; width: 34px; height: 18px; border-radius: 3px; display: block; }
 .mft { position: absolute; left: 18px; width: 950px; height: 44px; font-size: 16px; line-height: 22px; color: #ffffff; overflow: hidden; }
 .mft.cinza { color: #8b9dc3 !important; }
+.mft.menor { font-size: 14px; line-height: 21px; height: 42px; }
+.mft.uma { height: 21px; white-space: nowrap; text-overflow: ellipsis; }
+.mfl.ambar { color: #f59e0b; }
+.mflim { position: absolute; left: 0; width: 956px; height: 0; border-top: 1px dashed #f59e0b; opacity: 0.75; display: block; }
+.mflimt { position: absolute; right: 0; font-size: 10px; letter-spacing: 1px; color: #f59e0b; white-space: nowrap; }
 .mfd { position: absolute; left: 18px; width: 950px; font-size: 14px; line-height: 21px; color: #cfe3ff; }
 .mfd b { color: #22d3ee; }
 #mFichaVoltar { left: 852px; top: 584px; width: 120px; height: 46px; line-height: 44px; font-size: 15px; }
