@@ -650,7 +650,8 @@
       u.volume = 1;
       u.onend = function () { al.falandoAte = 0; };
       al.falandoAte = agoraMs() + Math.min(25000, 2000 + texto.length * 80);
-      window.speechSynthesis.cancel();
+      // s\u00f3 interrompe se j\u00e1 houver fala em andamento: no Safari, cancelar e falar em seguida pode engolir a frase
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) { window.speechSynthesis.cancel(); }
       window.speechSynthesis.speak(u);
       return true;
     } catch (e) { al.falandoAte = 0; return false; }
