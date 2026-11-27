@@ -22,6 +22,10 @@
   var LS_SIL = 'central.silencio';
   var LS_TOQUE = 'central.toque';
   var INTERVALO = 60000;
+  /* 1.9.1: a VM publica a cada 1 min, mas o raw.githubusercontent.com guarda c\u00f3pia por at\u00e9 5 min; a API do GitHub entrega
+     o arquivo na hora (60 pedidos/hora por IP, sem login). O Monitor l\u00ea pela API a cada 90 s (mais espa\u00e7ado se a cota
+     estiver no fim) e usa o caminho antigo quando a API recusa, cai ou a cota acaba */
+  var API_PASSO = 90000;
   var GRUPOS = [
     { id: 'bi', nome: 'BI' },
     { id: 'ferramentas', nome: 'FERRAMENTAS E FONTES' },
@@ -37,7 +41,8 @@
   };
   var m = {
     chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0,
-    det: null, pag: 0, tentativas: 0, ficha: -1, lista: [], novaVersao: false, proximaVersao: 0, erroInterno: '', acordadoAte: 0, noiteOn: false
+    det: null, pag: 0, tentativas: 0, ficha: -1, lista: [], novaVersao: false, proximaVersao: 0, erroInterno: '', acordadoAte: 0, noiteOn: false,
+    via: '', viaDados: '', api: { ate: 0, prox: 0, falhas: 0, resta: -1, reset: 0, pedidos: 0 }
   };
   var POR_PAGINA = 10;
   /* alarme: toca sem parar nos 3 primeiros minutos e depois lembra a cada 5 minutos, at\u00e9 tocar em Ciente */
@@ -109,6 +114,45 @@
     if (h && repo) { return 'https://raw.githubusercontent.com/' + h[1] + '/' + repo + '/dados/status.json'; }
     return 'dados/status.json';
   }
+  function fonteApi() {
+    if (window.CENTRAL_API !== undefined) { return window.CENTRAL_API; }
+    var h = /^([a-z0-9-]+)\.github\.io$/i.exec(location.hostname), repo = location.pathname.split('/')[1] || '';
+    if (h && repo) { return 'https://api.github.com/repos/' + h[1] + '/' + repo + '/contents/status.json?ref=dados'; }
+    return '';
+  }
+  /* a resposta da API traz o arquivo em base64 (quebrado em linhas); o envelope \u00e9 s\u00f3 ASCII */
+  function conteudoApi(texto) {
+    var o = null, b = '';
+    try { o = JSON.parse(texto); } catch (e) { return null; }
+    if (!o || o.encoding !== 'base64' || typeof o.content !== 'string' || !o.content) { return null; }
+    try { b = window.atob(o.content.replace(/\s+/g, '')); } catch (e2) { return null; }
+    try { return decodeURIComponent(window.escape(b)); } catch (e3) { return b; }
+  }
+  function apiLivre(t) {
+    var a = m.api;
+    return !!fonteApi() && t >= a.ate && !(a.resta >= 0 && a.resta <= 4 && t < a.reset);
+  }
+  function notarCota(x) {
+    var r = NaN, z = NaN;
+    try { r = parseInt(x.getResponseHeader('X-RateLimit-Remaining'), 10); z = parseInt(x.getResponseHeader('X-RateLimit-Reset'), 10); } catch (e) { r = NaN; }
+    if (!isNaN(r)) { m.api.resta = r; }
+    if (!isNaN(z)) { m.api.reset = z * 1000; }
+  }
+  /* pr\u00f3xima leitura pela API: 90 s, ou mais espa\u00e7ada para a cota (dividida com quem mais usa a mesma internet) durar at\u00e9 renovar */
+  function passoApi(t) {
+    var a = m.api, p = API_PASSO;
+    if (a.resta >= 0 && a.reset > t) { p = Math.max(p, (a.reset - t) / Math.max(1, a.resta - 4)); }
+    return p;
+  }
+  /* quando buscar de novo: espera a vez da API se ela vem logo; se n\u00e3o, o caminho antigo a cada minuto */
+  function agendar(t) {
+    var a = m.api;
+    if (apiLivre(t) && a.prox - t <= 120000) { m.proxima = Math.max(a.prox, t + 5000); return; }
+    var p = t + INTERVALO;
+    if (fonteApi() && a.ate > t) { p = Math.min(p, a.ate); }
+    else if (fonteApi() && a.prox > t) { p = Math.min(p, a.prox); }
+    m.proxima = p;
+  }
 
   /* ---------- abrir o envelope criptografado ---------- */
   function bytes(b64) {
@@ -127,16 +171,20 @@
   }
 
   /* ---------- busca ---------- */
-  function tratar(status, texto) {
+  function tratar(status, texto, via) {
     m.ultStatus = status;
     if (status === 200) {
       var env = null;
       try { env = JSON.parse(texto); } catch (e) { env = null; }
       if (!env) { m.rede = 'erro'; m.msg = 'O arquivo de status veio inv\u00e1lido.'; return; }
+      // a c\u00f3pia do caminho antigo pode ser mais velha do que o que a API j\u00e1 trouxe: n\u00e3o volta no tempo
+      var gNovo = quando(env.gerado), gAtual = via === 'raw' && m.viaDados === 'api' && m.dados && m.rede !== 'chave' ? quando(m.dados.gerado) : null;
+      if (gNovo !== null && gAtual !== null && gNovo < gAtual) { m.rede = 'online'; m.msg = ''; return; }
       m.env = env;
       if (!m.chave) { m.rede = 'semchave'; m.msg = ''; return; }
       try {
         m.dados = abrir(env, m.chave);
+        m.viaDados = via || '';
         m.recebidoEm = agoraMs();
         m.rede = 'online';
         m.msg = '';
@@ -149,19 +197,12 @@
       m.msg = status > 0 ? 'Erro ' + status + ' ao buscar o status.' : (status < 0 ? 'O status demorou demais para chegar.' : 'Sem internet, ou o certificado do site n\u00e3o foi aceito.');
     }
   }
-  function buscar(manual) {
-    if (m.buscando) { return; }
-    m.buscando = true;
-    if (manual) { m.msg = 'Buscando\u2026'; render(); }
-    var x = new XMLHttpRequest(), url = fonte(), terminou = false;
+  function baixar(url, depois) {
+    var x = new XMLHttpRequest(), terminou = false;
     function fim(status, texto) {
       if (terminou) { return; }
       terminou = true;
-      m.buscando = false;
-      m.tentativas++;
-      m.proxima = agoraMs() + INTERVALO;
-      seguro('leitura', function () { tratar(status, texto); });
-      render();
+      depois(status, texto, x);
     }
     try {
       x.open('GET', url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + agoraMs(), true);
@@ -171,6 +212,39 @@
       x.onerror = function () { fim(0, ''); };
       x.send(null);
     } catch (e) { fim(0, ''); }
+  }
+  function buscar(manual) {
+    if (m.buscando) { return; }
+    var t = agoraMs(), a = m.api, viaApi = apiLivre(t) && (manual || t >= a.prox - 2000);
+    // a API leu h\u00e1 pouco e a pr\u00f3xima vez dela vem logo: o caminho antigo s\u00f3 traria uma c\u00f3pia mais velha
+    if (!viaApi && apiLivre(t) && m.via === 'api' && a.prox - t <= 120000) { agendar(t); return; }
+    m.buscando = true;
+    if (manual) { m.msg = 'Buscando\u2026'; render(); }
+    function fim(status, texto, via) {
+      m.buscando = false;
+      m.tentativas++;
+      m.via = via;
+      agendar(agoraMs());
+      seguro('leitura', function () { tratar(status, texto, via); });
+      render();
+    }
+    function antigo() { baixar(fonte(), function (s, txt) { fim(s, txt, 'raw'); }); }
+    if (!viaApi) { antigo(); return; }
+    a.pedidos++;
+    baixar(fonteApi(), function (s, txt, x) {
+      var conteudo = s === 200 ? conteudoApi(txt) : null;
+      notarCota(x);
+      if (conteudo !== null) {
+        a.falhas = 0;
+        a.prox = t + passoApi(t);
+        fim(200, conteudo, 'api');
+        return;
+      }
+      // a API n\u00e3o serviu (cota, fora do ar, certificado, formato): tenta de novo mais tarde e busca agora pelo caminho antigo
+      a.falhas++;
+      a.ate = (s === 403 || s === 429) && a.resta === 0 && a.reset > t ? a.reset + 5000 : t + Math.min(1800000, 120000 * Math.pow(2, Math.min(a.falhas, 6) - 1));
+      antigo();
+    });
   }
 
   /* ---------- o que o PC publicou ---------- */
@@ -237,10 +311,16 @@
     return c;
   }
   function naVM() { return !!(m.dados && m.dados.pc && m.dados.pc.onde === 'vm'); }
+  /* ciclo do coletor: a 1.9.1 manda cicloSeg (a VM roda a cada 1 min); os antigos, s\u00f3 intervaloMin */
+  function cicloMs() {
+    var p = (m.dados && m.dados.pc) || {};
+    return p.cicloSeg > 0 ? p.cicloSeg * 1000 : (p.intervaloMin || 5) * 60000;
+  }
+  function cicloTxt() { var s = Math.round(cicloMs() / 1000); return s < 60 ? s + ' s' : Math.round(s / 60) + ' min'; }
   function dadosVelhos() {
     var d = m.dados, gerado = d ? quando(d.gerado) : null;
     if (gerado === null) { return false; }
-    return agoraMs() - gerado > ((d.pc && d.pc.intervaloMin) || 5) * 3 * 60000;
+    return agoraMs() - gerado > Math.max(3 * cicloMs(), 600000);
   }
 
   /* ---------- silenciar (1.7): o que j\u00e1 se sabe sai da contagem at\u00e9 mudar de estado ou o prazo acabar ---------- */
@@ -357,6 +437,7 @@
     }
     U.txt('mSub', sub);
     var r = REDE[m.rede] || REDE.erro;
+    if (m.rede === 'online' && m.via === 'api') { r = ['verde', 'AO VIVO']; }
     U.html('mRede', '<span class="pill ' + r[0] + '">' + r[1] + '</span>');
     U.classe(U.$('pg-monitor'), 'velho', !!e.velho);
     var dot = U.$('tabMonDot');
@@ -1400,7 +1481,7 @@
         var bt = quando(mq.boot);
         linhas.push('Ligada desde ' + quandoTxt(bt) + ' (h\u00e1 ' + durCurta(agora - bt) + ')' + (mq.proc ? ' \u00b7 a API usa ' + (mq.proc.api || '?') + ' MB e o bot ' + (mq.proc.whatsapp || '?') + ' MB (sem os classificadores que ele abre)' : ''));
       } else {
-        linhas.push('A API responde: conferido a cada ' + ((d && d.pc && d.pc.intervaloMin) || 5) + ' min, de fora, sem senha nem token');
+        linhas.push('A API responde: conferido a cada ' + cicloTxt() + ', de fora, sem senha nem token');
       }
       if (bot) { linhas.push('Bot do WhatsApp: ' + (bot.estado === 'ok' ? '' : bot.valor + ' \u00b7 ') + partes(bot.detalhe).slice(0, 1).join('').replace(/^Servi\u00e7o ativo e conectado ao WhatsApp$/, 'conectado') + (/\u00faltima atividade/.test(bot.detalhe) ? ' \u00b7 ' + /\u00faltima atividade[^\u00b7]*/.exec(bot.detalhe)[0].replace(/\s+$/, '') : '')); }
       if (typeof v.a1 === 'number') { var a1 = local(agora + v.a1 * 86400000); linhas.push('Certificado A1 da empresa: vence em ' + U.pad2(a1.getDate()) + '/' + U.pad2(a1.getMonth() + 1) + '/' + a1.getFullYear() + ' (' + v.a1 + ' dias)' + (typeof v.https === 'number' ? ' \u00b7 HTTPS do dom\u00ednio: mais ' + v.https + ' dias' : '')); }
