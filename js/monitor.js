@@ -377,9 +377,17 @@
     if (!p) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
-    var max = Math.max(1, Math.floor((p.h - 44 - 22) / 40)), dia = agoraMs() - 86400000, n24 = 0;
-    for (i = 0; i < evs.length; i++) { var t0 = quando(evs[i].t); if (t0 !== null && t0 >= dia && evs[i].n !== 'info') { n24++; } }
-    var s = '<div class="mgt">ACONTECIMENTOS</div><div class="mgr mgr2">' + (n24 ? n24 + ' nas \u00faltimas 24h' : 'nada nas \u00faltimas 24h') + '</div><div class="mlista">';
+    var max = Math.max(1, Math.floor((p.h - 44 - 22) / 40)), dia = agoraMs() - 86400000, n24 = 0, antigo = null, topo = '';
+    for (i = 0; i < evs.length; i++) {
+      var t0 = quando(evs[i].t);
+      if (t0 === null) { continue; }
+      if (antigo === null || t0 < antigo) { antigo = t0; }
+      if (t0 >= dia && evs[i].n !== 'info') { n24++; }
+    }
+    // o registro pode ter come\u00e7ado h\u00e1 menos de um dia: a\u00ed n\u00e3o d\u00e1 para afirmar nada sobre as 24 horas
+    if (n24) { topo = n24 + ' nas \u00faltimas 24h'; }
+    else if (antigo !== null) { topo = antigo > dia ? 'nada novo desde ' + quandoTxt(antigo) : 'nada novo nas \u00faltimas 24h'; }
+    var s = '<div class="mgt">ACONTECIMENTOS</div><div class="mgr mgr2">' + topo + '</div><div class="mlista">';
     if (!evs.length) { s += '<div class="mvazio">Nada por enquanto. O Monitor anota aqui quando algo falha, para ou volta ao normal.</div>'; }
     for (i = 0; i < evs.length && i < max; i++) {
       var e = evs[i], est = COR[e.n] ? e.n : 'info', t = quando(e.t);
