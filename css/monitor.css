@@ -67,3 +67,16 @@ body { position: relative; }
 #mSalvar { left: 18px; top: 232px; width: 200px; height: 52px; line-height: 50px; font-size: 17px; }
 #mCancelar { left: 230px; top: 232px; width: 130px; height: 52px; line-height: 50px; font-size: 15px; }
 #mSetupMsg { position: absolute; left: 18px; top: 298px; width: 600px; font-size: 13px; line-height: 18px; color: #f59e0b; }
+
+/* lista completa de um grupo */
+#mDet { left: 16px; top: 14px; width: 992px; height: 648px; z-index: 6; border-color: #22d3ee; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65); }
+#mDetTit { top: 16px; }
+#mDetLista { position: absolute; left: 12px; top: 58px; width: 968px; }
+#mDetLista .mn { width: 520px; }
+#mDetLista .mv { width: 260px; }
+#mDetLista .mdt { width: 760px; }
+#mDetAnt { left: 18px; top: 584px; width: 64px; height: 46px; line-height: 44px; font-size: 24px; }
+#mDetProx { left: 92px; top: 584px; width: 64px; height: 46px; line-height: 44px; font-size: 24px; }
+#mDetPag { position: absolute; left: 172px; top: 598px; font-size: 13px; color: #8b9dc3; }
+#mDetFechar { left: 852px; top: 584px; width: 120px; height: 46px; line-height: 44px; font-size: 15px; }
+.btn.off { opacity: 0.3; }

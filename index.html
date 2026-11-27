@@ -14,12 +14,12 @@
 <link rel="apple-touch-icon" sizes="120x120" href="img/icone-120.png">
 <link rel="apple-touch-icon" sizes="152x152" href="img/icone-152.png">
 <link rel="apple-touch-icon" sizes="180x180" href="img/icone-180.png">
-<link rel="stylesheet" href="css/cockpit.css?v=1.1">
-<link rel="stylesheet" href="css/monitor.css?v=1.1">
-<script src="js/cockpit.js?v=1.1"></script>
-<script src="js/sha256.js?v=1.1"></script>
-<script src="js/aes.js?v=1.1"></script>
-<script src="js/monitor.js?v=1.1"></script>
+<link rel="stylesheet" href="css/cockpit.css?v=1.2">
+<link rel="stylesheet" href="css/monitor.css?v=1.2">
+<script src="js/cockpit.js?v=1.2"></script>
+<script src="js/sha256.js?v=1.2"></script>
+<script src="js/aes.js?v=1.2"></script>
+<script src="js/monitor.js?v=1.2"></script>
 </head>
 <body>
 <div id="app">
@@ -74,6 +74,14 @@
       <div id="mSalvar" class="btn pri" data-act="mon-salvar">Salvar chave</div>
       <div id="mCancelar" class="btn" data-act="mon-cancelar">Cancelar</div>
       <div id="mSetupMsg"></div>
+    </div>
+    <div id="mDet" class="card esc">
+      <div id="mDetTit" class="ptit">&#160;</div>
+      <div id="mDetLista"></div>
+      <div id="mDetAnt" class="btn" data-act="mon-pag" data-arg="-1">&#8249;</div>
+      <div id="mDetProx" class="btn" data-act="mon-pag" data-arg="1">&#8250;</div>
+      <div id="mDetPag"></div>
+      <div id="mDetFechar" class="btn pri" data-act="mon-fechar">Fechar</div>
     </div>
   </div>
 
@@ -227,7 +235,7 @@
 
   <div id="rodape" data-livre="1">
     <span class="l">Central · o PC publica o status e o iPad lê pela própria internet</span>
-    <span class="r">Cockpit 1.1 · seus números ficam só neste iPad</span>
+    <span class="r">Cockpit 1.2 · seus números ficam só neste iPad</span>
   </div>
   <div id="aviso" data-act="aviso"></div>
   <div id="flash"></div>

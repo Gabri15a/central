@@ -23,7 +23,8 @@
     chave: ['vermelho', 'CHAVE ERRADA'], semchave: ['ambar', 'SEM CHAVE'], semdados: ['ambar', 'SEM DADOS'],
     erro: ['vermelho', 'ERRO']
   };
-  var m = { chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0 };
+  var m = { chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0, det: null, pag: 0 };
+  var POR_PAGINA = 10;
 
   function ler(k) { try { return window.localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function gravar(k, v) {
@@ -190,15 +191,61 @@
     s += '</div>';
     if (itens.length > MAX_ITENS) {
       var resto = itens.length - MAX_ITENS;
-      s += '<div class="mmais">+ ' + resto + ' ' + U.plural(resto, 'item', 'itens') + ' sem problema</div>';
+      s += '<div class="mmais">+ ' + resto + ' ' + U.plural(resto, 'outro item', 'outros itens') + ' \u00b7 toque para ver todos</div>';
     }
     U.html('mG-' + g.id, s);
   }
+
+  /* ---------- lista completa de um grupo (toque no cart\u00e3o) ---------- */
+  function itensOrdenados(id) {
+    var itens = itensDo(id).slice(0), i, extra = [];
+    for (i = 0; i < itens.length; i++) {
+      itens[i]._o = i;
+      // o resumo "modelos parados" traz a lista dos parados: entra como linhas pr\u00f3prias no detalhe
+      if (itens[i].parados && itens[i].parados.length) {
+        for (var j = 0; j < itens[i].parados.length; j++) {
+          var p = itens[i].parados[j];
+          extra.push({ nome: p.nome, estado: 'off', valor: 'parado', detalhe: (p.area || '') + ' \u00b7 ' + (p.motivo || ''), quando: p.desde, _o: 1000 + j });
+        }
+      }
+    }
+    itens = itens.concat(extra);
+    itens.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
+    return itens;
+  }
+  function renderDetalhe() {
+    if (!m.det) { return; }
+    var g = null, i;
+    for (i = 0; i < GRUPOS.length; i++) { if (GRUPOS[i].id === m.det) { g = GRUPOS[i]; } }
+    var itens = itensOrdenados(m.det), total = itens.length, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+    if (m.pag > paginas - 1) { m.pag = paginas - 1; }
+    if (m.pag < 0) { m.pag = 0; }
+    U.txt('mDetTit', (g ? g.nome : '') + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens'));
+    var agora = agoraMs(), s = '';
+    for (i = m.pag * POR_PAGINA; i < total && i < (m.pag + 1) * POR_PAGINA; i++) {
+      var it = itens[i], est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
+      s += '<div class="mi ' + est + (i === m.pag * POR_PAGINA ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+        '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
+        '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+    }
+    if (!total) { s = '<div class="mvazio">Nada para mostrar aqui.</div>'; }
+    U.html('mDetLista', s);
+    U.txt('mDetPag', 'p\u00e1gina ' + (m.pag + 1) + ' de ' + paginas);
+    U.classe(U.$('mDetAnt'), 'off', m.pag === 0);
+    U.classe(U.$('mDetProx'), 'off', m.pag >= paginas - 1);
+  }
+  function abrirDetalhe(id) {
+    m.det = id; m.pag = 0;
+    U.classe(U.$('mDet'), 'esc', false);
+    renderDetalhe();
+  }
+  function fecharDetalhe() { m.det = null; U.classe(U.$('mDet'), 'esc', true); }
   function render() {
     if (!U) { return; }
     m.ultimoRender = agoraMs();
     renderHero();
     for (var i = 0; i < GRUPOS.length; i++) { renderGrupo(GRUPOS[i]); }
+    renderDetalhe();
   }
 
   /* ---------- chave ---------- */
@@ -245,6 +292,13 @@
       U.acoes['mon-chave'] = function () { mostrarSetup(true); };
       U.acoes['mon-salvar'] = salvarChave;
       U.acoes['mon-cancelar'] = function () { if (m.chave) { mostrarSetup(false); } };
+      U.acoes['mon-grupo'] = function (id) { abrirDetalhe(id); };
+      U.acoes['mon-fechar'] = fecharDetalhe;
+      U.acoes['mon-pag'] = function (d) { m.pag += parseInt(d, 10) || 0; renderDetalhe(); };
+      for (var gi = 0; gi < GRUPOS.length; gi++) {
+        var cartao = U.$('mG-' + GRUPOS[gi].id);
+        if (cartao) { cartao.setAttribute('data-act', 'mon-grupo'); cartao.setAttribute('data-arg', GRUPOS[gi].id); }
+      }
       var inp = U.$('mChave');
       if (inp) {
         inp.addEventListener('keydown', function (e) { if (e.keyCode === 13) { e.preventDefault(); salvarChave(); } }, false);
