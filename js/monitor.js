@@ -17,6 +17,8 @@
   var LS_VISTOS = 'central.alarme.vistos';
   var LS_VOZ = 'central.voz';
   var LS_NOITE = 'central.noite';
+  var LS_SIL = 'central.silencio';
+  var LS_TOQUE = 'central.toque';
   var INTERVALO = 60000;
   var GRUPOS = [
     { id: 'bi', nome: 'BI' },
@@ -42,6 +44,9 @@
   var som = { el: null, ac: null, liberado: false, elOk: false };
   var voz = { ok: false, ligada: true };
   var noite = { tela: false, som: false, ini: 22, fim: 6 };
+  var sil = {}; // 1.7: itens silenciados pelo usu\u00e1rio (chave|estado -> at\u00e9 quando)
+  var gh = { em: 0, lido: 0, ruim: false, txt: '' }; // 1.7: githubstatus.com, lido pelo iPad quando os dados n\u00e3o chegam
+  var volta = { desde: 0, ate: 0 }; // 1.7: resumo "desde HH" depois de um tempo longe do iPad
 
   function ler(k) { try { return window.localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function gravar(k, v) {
@@ -121,6 +126,7 @@
 
   /* ---------- busca ---------- */
   function tratar(status, texto) {
+    m.ultStatus = status;
     if (status === 200) {
       var env = null;
       try { env = JSON.parse(texto); } catch (e) { env = null; }
@@ -138,7 +144,7 @@
       m.rede = 'semdados'; m.msg = 'O PC ainda n\u00e3o publicou o status.';
     } else {
       m.rede = 'offline';
-      m.msg = status ? 'Erro ' + status + ' ao buscar o status.' : 'Sem internet, ou o certificado do site n\u00e3o foi aceito.';
+      m.msg = status > 0 ? 'Erro ' + status + ' ao buscar o status.' : (status < 0 ? 'O status demorou demais para chegar.' : 'Sem internet, ou o certificado do site n\u00e3o foi aceito.');
     }
   }
   function buscar(manual) {
@@ -159,7 +165,7 @@
       x.open('GET', url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + agoraMs(), true);
       x.timeout = 20000;
       x.onreadystatechange = function () { if (x.readyState === 4) { fim(x.status, x.responseText); } };
-      x.ontimeout = function () { fim(0, ''); };
+      x.ontimeout = function () { fim(-1, ''); };
       x.onerror = function () { fim(0, ''); };
       x.send(null);
     } catch (e) { fim(0, ''); }
@@ -208,7 +214,7 @@
       var it = itensDo(vis[g].id);
       for (var i = 0; i < it.length; i++) {
         c.total++;
-        if (it[i].estado === 'erro') { c.erro++; } else if (it[i].estado === 'alerta') { c.alerta++; }
+        if (it[i].estado === 'erro') { c.erro++; } else if (it[i].estado === 'alerta' && !silenciado(it[i])) { c.alerta++; }
       }
     }
     return c;
@@ -218,6 +224,70 @@
     if (gerado === null) { return false; }
     return agoraMs() - gerado > ((d.pc && d.pc.intervaloMin) || 5) * 3 * 60000;
   }
+
+  /* ---------- silenciar (1.7): o que j\u00e1 se sabe sai da contagem at\u00e9 mudar de estado ou o prazo acabar ---------- */
+  function lerSil() {
+    var o = null, t = agoraMs(), k;
+    sil = {};
+    try { o = JSON.parse(ler(LS_SIL) || '{}'); } catch (e) { o = null; }
+    if (o) { for (k in o) { if (o.hasOwnProperty(k) && o[k] > t) { sil[k] = o[k]; } } }
+  }
+  function chaveSil(it) { return (it.chave || it.nome || '') + '|' + it.estado; }
+  function podeSilenciar(it) { return !!it && !it.m && !it.modelo && (it.estado === 'alerta' || it.estado === 'info'); }
+  function silenciado(it) {
+    if (!podeSilenciar(it)) { return 0; }
+    var a = sil[chaveSil(it)];
+    return a && a > agoraMs() ? a : 0;
+  }
+  function silenciar(it, dias) {
+    if (!podeSilenciar(it)) { return; }
+    if (dias > 0) { sil[chaveSil(it)] = agoraMs() + dias * 86400000; } else { delete sil[chaveSil(it)]; }
+    gravar(LS_SIL, JSON.stringify(sil));
+  }
+
+  /* ---------- de volta ao iPad (1.7): o que aconteceu enquanto voc\u00ea estava longe ---------- */
+  function voltou() {
+    var t = agoraMs(), ult = parseInt(ler(LS_TOQUE), 10) || 0;
+    if (ult && ult < t && t - ult >= 3 * 3600000) { volta.desde = ult; volta.ate = t + 300000; }
+    if (t - ult > 60000) { gravar(LS_TOQUE, String(t)); }
+  }
+  function voltaTxt() {
+    var d = m.dados, g = grupoDados('bi') || {}, r = g.resumo || {}, hh = r.hh, ger = d ? quando(d.gerado) : null, i;
+    if (!volta.ate || agoraMs() > volta.ate || !hh || hh.length !== 24 || ger === null) { return ''; }
+    var hFim = Math.floor(ger / 3600000), hIni = Math.floor(volta.desde / 3600000), ok = 0, f = 0, ne = 0;
+    for (i = 0; i < 24; i++) { if (hFim - 23 + i >= hIni) { ok += hh[i][0]; f += hh[i][1]; } }
+    var evs = eventosDoPC();
+    for (i = 0; i < evs.length; i++) { var te = quando(evs[i].t); if (te !== null && te >= volta.desde && evs[i].n !== 'info') { ne++; } }
+    return (hFim - hIni > 23 ? 'Nas \u00faltimas 24h' : 'Desde as ' + horaDe(volta.desde)) + ': ' + ok + ' ' + U.plural(ok, 'atualiza\u00e7\u00e3o certa', 'atualiza\u00e7\u00f5es certas') + ' \u00b7 ' +
+      f + ' ' + U.plural(f, 'falha', 'falhas') + (ne ? ' \u00b7 ' + ne + ' ' + U.plural(ne, 'acontecimento', 'acontecimentos') : '');
+  }
+  /* githubstatus.com, lido pelo pr\u00f3prio iPad quando os dados n\u00e3o chegam: separa "o PC parou" de "o GitHub est\u00e1 com problema" */
+  var GH_PARTE = { Pages: 'site do app', 'Git Operations': 'envio do status', 'API Requests': 'API' };
+  var GH_EST = { degraded_performance: 'lentid\u00e3o', partial_outage: 'falha parcial', major_outage: 'falha geral', under_maintenance: 'manuten\u00e7\u00e3o' };
+  function verGithub() {
+    var t = agoraMs();
+    if (t - gh.em < 300000) { return; }
+    gh.em = t;
+    var x = new XMLHttpRequest();
+    try {
+      x.open('GET', 'https://www.githubstatus.com/api/v2/summary.json', true);
+      x.timeout = 15000;
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) { return; }
+        seguro('github', function () {
+          if (x.status !== 200) { return; }
+          var o = JSON.parse(x.responseText), c = (o && o.components) || [], l = [], i;
+          for (i = 0; i < c.length; i++) {
+            if (GH_PARTE[c[i].name] && c[i].status !== 'operational') { l.push(GH_PARTE[c[i].name] + ' com ' + (GH_EST[c[i].status] || c[i].status)); }
+          }
+          gh.lido = agoraMs(); gh.ruim = l.length > 0; gh.txt = l.join(' \u00b7 ');
+          renderHero();
+        });
+      };
+      x.send(null);
+    } catch (e) { /* sem diagn\u00f3stico */ }
+  }
+  function ghRecente() { return gh.lido && agoraMs() - gh.lido < 900000; }
 
   /* ---------- topo ---------- */
   function saudacao() {
@@ -234,7 +304,12 @@
     var d = m.dados, agora = agoraMs(), gerado = d ? quando(d.gerado) : null, e = estadoGeral(), c = e.c;
     var sim, tit, sub;
     if (!d) { sim = '?'; tit = m.chave ? 'Esperando os dados do PC' : 'Monitor sem chave'; }
-    else if (e.velho) { sim = '!'; tit = (m.rede === 'offline' ? 'iPad sem internet ' : 'O PC parou de enviar ') + idadeTxt(agora - gerado); }
+    else if (e.velho) {
+      sim = '!';
+      if (ghRecente() && gh.ruim) { tit = 'GitHub inst\u00e1vel \u00b7 dados de ' + hora(gerado); }
+      else if (m.rede === 'offline') { tit = ghRecente() ? 'iPad n\u00e3o abre o status' : 'iPad sem internet ' + idadeTxt(agora - gerado); }
+      else { tit = 'O PC parou de enviar ' + idadeTxt(agora - gerado); }
+    }
     else if (c.erro) {
       // um problema s\u00f3 (ou v\u00e1rios com a mesma causa): o topo j\u00e1 diz qual \u00e9
       var probs = problemasAtuais();
@@ -250,8 +325,15 @@
     U.txt('mTit', tit);
     if (d && gerado !== null) {
       sub = 'Dados do PC' + (d.pc && d.pc.nome ? ' ' + d.pc.nome : '') + ' de ' + hora(gerado) + ' (' + idadeTxt(agora - gerado) + ')';
+      var vt = voltaTxt();
       if (gerado - agora > 300000) { sub = 'O rel\u00f3gio do iPad est\u00e1 atrasado: ligue Ajustes \u203a Geral \u203a Data e Hora \u203a Autom\u00e1tico'; }
+      else if (e.velho && ghRecente() && gh.ruim) { sub = 'githubstatus.com: ' + gh.txt; }
+      else if (e.velho && ghRecente() && m.rede === 'offline') {
+        sub = m.ultStatus === 0 ? 'Internet e GitHub ok: prov\u00e1vel falta da raiz Let\u2019s Encrypt no iPad' : 'Internet e GitHub ok \u00b7 ' + m.msg;
+      }
+      else if (e.velho && ghRecente() && m.rede === 'online') { sub = 'GitHub normal: o PC est\u00e1 desligado, sem internet ou o coletor parou'; }
       else if (m.rede !== 'online' && m.msg) { sub += ' \u00b7 ' + m.msg; }
+      else if (vt) { sub = vt; }
     } else {
       sub = m.msg || (m.chave ? 'Buscando o status publicado pelo PC\u2026' : 'Toque em Chave e digite a chave da Central.');
     }
@@ -269,7 +351,7 @@
   function pillDe(itens) {
     var nErro = 0, nAlerta = 0, nAtivos = 0, i;
     for (i = 0; i < itens.length; i++) {
-      if (itens[i].estado === 'erro') { nErro++; } else if (itens[i].estado === 'alerta') { nAlerta++; }
+      if (itens[i].estado === 'erro') { nErro++; } else if (itens[i].estado === 'alerta' && !silenciado(itens[i])) { nAlerta++; }
       if (itens[i].estado !== 'off') { nAtivos++; }
     }
     return nErro ? ['vermelho', nErro + ' ' + U.plural(nErro, 'PROBLEMA', 'PROBLEMAS')] :
@@ -286,12 +368,15 @@
     return l;
   }
   /* aviso de fundo (b): informa, mas n\u00e3o tira do cart\u00e3o quem mostra que est\u00e1 tudo funcionando */
-  function pesoItem(it) { return it.b && (it.estado === 'info' || it.estado === 'ok') ? 0.5 : (PESO[it.estado] || 0); }
+  function pesoItem(it) {
+    if (silenciado(it)) { return 0.4; }
+    return it.b && (it.estado === 'info' || it.estado === 'ok') ? 0.5 : (PESO[it.estado] || 0);
+  }
   function linhaItem(it, primeira, agora, extra) {
-    var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
-    return '<div class="mi ' + est + (primeira ? ' prim' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+    var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando), ate = silenciado(it);
+    return '<div class="mi ' + est + (primeira ? ' prim' : '') + (ate ? ' sil' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
       '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
-      '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+      '<div class="mdt">' + (ate ? 'silenciado at\u00e9 ' + quandoTxt(ate) + ' \u00b7 ' : '') + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
   }
   /* cart\u00e3o comum: linhas altas (nome, valor, detalhe) ou compactas (nome e valor) */
   function renderGrupo(g, p, compacto) {
@@ -302,7 +387,7 @@
     for (i = 0; i < itens.length && i < max; i++) {
       if (!compacto) { s += linhaItem(itens[i], i === 0, agora); continue; }
       var it = itens[i], est = COR[it.estado] ? it.estado : 'info';
-      s += '<div class="mc ' + est + (i === 0 ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+      s += '<div class="mc ' + est + (i === 0 ? ' prim' : '') + (silenciado(it) ? ' sil' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="mcn">' + U.esc(it.nome || '') + '</div><div class="mcv">' + U.esc(it.valor || '') + '</div></div>';
     }
     s += '</div>';
@@ -369,7 +454,9 @@
       if (res.length > 44) { res = r.ok + ' no ritmo' + limTxt + rodTxt + parTxt; }
       if (r.h24 && (r.h24[0] || r.h24[1])) { dia = '24h: ' + r.h24[0] + ' certas \u00b7 ' + r.h24[1] + ' ' + U.plural(r.h24[1], 'falha', 'falhas'); }
     }
-    s += '<div class="mres">' + U.esc(res) + '</div><div class="mres24' + (r && r.h24 && r.h24[1] ? ' ruim' : '') + '">' + U.esc(dia) + '</div><div class="mgrade">';
+    var temMapa = false;
+    for (i = 0; i < mods.length; i++) { if (mods[i].faixa && mods[i].faixa.length === 24) { temMapa = true; } }
+    s += '<div class="mres">' + U.esc(res) + '</div><div class="mres24' + (r && r.h24 && r.h24[1] ? ' ruim' : '') + (temMapa ? ' lnk' : '') + '"' + (temMapa ? ' data-act="mon-mapa"' : '') + '>' + U.esc(dia) + (temMapa && dia ? ' \u203a' : '') + '</div><div class="mgrade">';
     for (i = 0; i < lista.length; i++) {
       var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora);
       s += '<div class="mm ' + est + '"><i class="md ' + est + (mo.lim && est === 'ok' ? ' lim' : '') + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
@@ -377,7 +464,7 @@
     }
     s += '</div>';
     s += '<div class="mmais">' + (mods.length > lista.length ? '+ ' + (mods.length - lista.length) + ' outros modelos \u00b7 ' : '') +
-      (r && r.lim ? 'anel amarelo = no limite do ritmo \u00b7 toque no modelo para ver a ficha' : 'toque para abrir a ficha de cada modelo') + '</div>';
+      (r && r.lim ? 'anel amarelo = no limite do ritmo \u00b7 ' : '') + (temMapa ? 'toque em 24h para ver o mapa do dia' : 'toque para abrir a ficha de cada modelo') + '</div>';
     U.html('mG-' + g.id, s);
   }
 
@@ -467,10 +554,11 @@
     if (m.pag < 0) { m.pag = 0; }
     var temFicha = false;
     for (i = 0; i < total; i++) { if (itens[i].modelo) { temFicha = true; } }
-    U.txt('mDetTit', tituloDetalhe(m.det) + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens') + (temFicha ? ' \u00b7 toque num modelo para abrir a ficha' : ''));
+    U.txt('mDetTit', tituloDetalhe(m.det) + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens') + (m.det === 'eventos' ? '' : (temFicha ? ' \u00b7 toque num modelo ou item para ver mais' : ' \u00b7 toque num item para ver mais')));
     var agora = agoraMs(), s = '';
     for (i = m.pag * POR_PAGINA; i < total && i < (m.pag + 1) * POR_PAGINA; i++) {
-      s += linhaItem(itens[i], i === m.pag * POR_PAGINA, agora, itens[i].modelo ? ' data-act="mon-modelo" data-arg="' + i + '"' : '');
+      var act = itens[i].modelo ? ' data-act="mon-modelo" data-arg="' + i + '"' : (m.det !== 'eventos' ? ' data-act="mon-item" data-arg="' + i + '"' : '');
+      s += linhaItem(itens[i], i === m.pag * POR_PAGINA, agora, act);
     }
     if (!total) { s = '<div class="mvazio">Nada para mostrar aqui.</div>'; }
     U.html('mDetLista', s);
@@ -483,7 +571,12 @@
     U.classe(U.$('mDet'), 'esc', false);
     renderDetalhe();
   }
-  function fecharFicha() { m.ficha = -1; U.classe(U.$('mFicha'), 'esc', true); }
+  function fecharFicha() { m.ficha = -1; m.fichaTipo = ''; m.fichaVolta = ''; m.fichaId = ''; m.fichaItem = null; U.classe(U.$('mFicha'), 'esc', true); }
+  /* Voltar: a ficha de um modelo aberta pelo mapa volta para o mapa */
+  function voltarFicha() {
+    if (m.fichaVolta === 'mapa' && m.fichaTipo !== 'mapa') { m.fichaVolta = ''; m.fichaTipo = 'mapa'; m.ficha = 0; renderFicha(); return; }
+    fecharFicha();
+  }
   function fecharDetalhe() { m.det = null; U.classe(U.$('mDet'), 'esc', true); fecharFicha(); }
 
   /* ---------- ficha do modelo ---------- */
@@ -520,10 +613,29 @@
     if (n >= 10000) { return Math.round(n / 1000) + ' mil'; }
     return String(Math.round(n));
   }
-  /* conte\u00fado do modelo (coletor 1.6): tabela que veio vazia ou encolheu, data imposs\u00edvel, calend\u00e1rio gigante */
+  /* data local guardada pelo modelo ('2026-11-27T22:38'): hoje, ontem ou dd/mm (com a hora, se tiver) */
+  function diaRel(v) {
+    var m2 = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d))?/.exec(String(v || ''));
+    if (!m2) { return ''; }
+    var hoje = local(agoraMs()), d = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3]));
+    var dias = Math.round((meiaNoite(hoje) - d.getTime()) / 86400000), h = m2[4] && (m2[4] !== '00' || m2[5] !== '00') ? ' ' + m2[4] + ':' + m2[5] : '';
+    if (h && d.getTime() + (Number(m2[4]) * 60 + Number(m2[5])) * 60000 > hoje.getTime()) { h = ''; } // hora ainda por vir (fim do dia): s\u00f3 o dia
+    if (dias === 0) { return 'hoje' + h; }
+    if (dias === 1) { return 'ontem' + h; }
+    return m2[3] + '/' + m2[2] + (dias > 300 ? '/' + m2[1] : '') + h;
+  }
+  function paradasTxt(c) {
+    var l = [], i;
+    for (i = 0; i < c.par.length && i < 3; i++) { l.push(c.par[i][0] + ' (desde ' + c.par[i][1] + ')'); }
+    return 'paradas no tempo: ' + l.join(', ') + (c.par.length > 3 ? '\u2026' : '');
+  }
+  /* conte\u00fado do modelo (coletor 1.6 e 1.7): origem parada, tabela que parou, veio vazia ou encolheu, data imposs\u00edvel,
+     calend\u00e1rio gigante e, sem achado, o dado mais recente que chegou */
   function conteudoTxt(mo) {
     var c = mo.ct, p = [], i, t;
     if (!c) { return null; }
+    if (c.op && c.ul) { p.push('a origem parou: a atualiza\u00e7\u00e3o d\u00e1 certo, mas o dado mais recente (' + c.ul[0] + ') ainda \u00e9 de ' + diaRel(c.ul[2])); }
+    if (c.pr) { for (i = 0; i < c.pr.length && i < 2; i++) { p.push('a tabela ' + c.pr[i][0] + ' parou de receber dado em ' + c.pr[i][1]); } }
     if (c.vz) { for (i = 0; i < c.vz.length; i++) { p.push('a tabela ' + c.vz[i][0] + ' veio vazia (tinha ' + milTxt(c.vz[i][1]) + ' linhas)'); } }
     if (c.enc) { for (i = 0; i < c.enc.length; i++) { p.push('a tabela ' + c.enc[i][0] + ' encolheu de ' + milTxt(c.enc[i][1]) + ' para ' + milTxt(c.enc[i][2]) + ' linhas'); } }
     if (c.di) {
@@ -531,20 +643,52 @@
       if (c.diN > 2) { p.push('e mais ' + (c.diN - 2)); }
     }
     if (c.cal) { for (i = 0; i < c.cal.length; i++) { p.push('o calend\u00e1rio ' + c.cal[i][0] + ' tem ' + milTxt(c.cal[i][1]) + ' linhas'); } }
-    if (p.length) { t = p.join('; '); return { ruim: true, txt: t.charAt(0).toUpperCase() + t.slice(1) + '.' }; }
+    if (p.length) {
+      if (c.par && c.par.length) { p.push(paradasTxt(c)); }
+      t = p.join('; '); return { ruim: true, txt: t.charAt(0).toUpperCase() + t.slice(1) + '.' };
+    }
     var lido = quando(c.t), mud = quando(c.mud);
-    return { ruim: false, txt: c.nt + ' tabelas e ' + milTxt(c.nl) + ' linhas' + (lido !== null ? ' \u00b7 conferido ' + quandoTxt(lido) : '') + ' \u00b7 nenhuma tabela vazia, nenhuma data imposs\u00edvel' + (mud !== null ? ' \u00b7 mudou pela \u00faltima vez ' + quandoTxt(mud) : '') };
+    if (c.par && c.par.length) {
+      t = (c.ul ? 'Dado mais recente: ' + diaRel(c.ul[2]) + ' (' + c.ul[0] + '). ' : '') + paradasTxt(c).charAt(0).toUpperCase() + paradasTxt(c).slice(1) + ' \u2014 sem dado novo h\u00e1 mais de 30 dias.';
+      return { ruim: false, par: true, txt: t };
+    }
+    return { ruim: false, txt: (c.ul ? 'Dado mais recente: ' + diaRel(c.ul[2]) + ' (' + c.ul[0] + ') \u00b7 ' : '') + c.nt + ' tabelas e ' + milTxt(c.nl) + ' linhas' + (lido !== null ? ' \u00b7 conferido ' + quandoTxt(lido) : '') + ' \u00b7 nenhuma tabela vazia, nenhuma data imposs\u00edvel' + (mud !== null ? ' \u00b7 mudou pela \u00faltima vez ' + quandoTxt(mud) : '') };
+  }
+  /* o que fazer quando o modelo est\u00e1 no limite do ritmo: primeiro o que o Monitor achou nele, depois o geral */
+  function dicasLimite(mo) {
+    var l = [], c = mo.ct || {}, grandes = [], i;
+    if (mo.td && mo.td[1]) { l.push('A dura\u00e7\u00e3o cresce uns ' + mo.td[0] + '% por semana: no ritmo atual, passa do intervalo em ~' + mo.td[1] + ' dias.'); }
+    if (c.par) { for (i = 0; i < c.par.length; i++) { if (c.par[i][3] >= 50000) { grandes.push(c.par[i][0]); } } }
+    if (grandes.length) { l.push('No Power Query, desmarcar "Incluir na atualiza\u00e7\u00e3o do relat\u00f3rio" nas tabelas paradas no tempo (' + grandes.slice(0, 2).join(', ') + (grandes.length > 2 ? '\u2026' : '') + '), para n\u00e3o recarregarem sem mudar a cada atualiza\u00e7\u00e3o.'); }
+    if (mo.tq >= 60) { l.push('Ver se o cache de consultas precisa ficar ligado (configura\u00e7\u00f5es do modelo): ele soma ' + durLonga(mo.tq) + ' a cada atualiza\u00e7\u00e3o.'); }
+    for (i = 0; i < DICAS_LIMITE.length && l.length < 3; i++) { l.push(DICAS_LIMITE[i]); }
+    return l;
+  }
+  /* outros modelos que falharam at\u00e9 10 min antes ou depois (a causa pode ser comum) */
+  function falharamJuntos(mo, t) {
+    var mods = modelosDo('bi'), l = [], i, j;
+    for (i = 0; i < mods.length; i++) {
+      if (mods[i].id === mo.id) { continue; }
+      var h = mods[i].h || [];
+      for (j = 0; j < h.length; j++) { if (h[j][0] === 'F' && Math.abs(h[j][1] * 1000 - t) <= 600000) { l.push(mods[i].nome); break; } }
+    }
+    return l;
   }
   function bloco(x, rotulo, valor, sub) {
     return '<div class="mfb" style="left:' + x + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv">' + U.esc(valor) + '</div><div class="mfs">' + U.esc(sub || '') + '</div></div>';
   }
   function renderFicha() {
     if (m.ficha < 0) { return; }
-    var linha = m.lista[m.ficha], mo = linha && linha.modelo, agora = agoraMs(), i;
-    if (!mo) { fecharFicha(); return; }
+    if (m.fichaTipo === 'mapa') { renderMapa(); return; }
+    if (m.fichaTipo === 'item') { renderItem(); return; }
+    renderFichaModelo();
+  }
+  function renderFichaModelo() {
+    var linha = m.lista[m.ficha], mo = m.fichaId ? null : (linha && linha.modelo), agora = agoraMs(), i;
     // o modelo pode ter mudado desde que a lista foi montada: pega a vers\u00e3o nova pelo id
-    var mods = modelosDo('bi');
-    for (i = 0; i < mods.length; i++) { if (mods[i].id === mo.id) { mo = mods[i]; } }
+    var mods = modelosDo('bi'), id = m.fichaId || (mo && mo.id);
+    for (i = 0; i < mods.length; i++) { if (mods[i].id === id) { mo = mods[i]; } }
+    if (!mo) { fecharFicha(); return; }
     var sit = NOME_SIT[mo.sit] || ['cinza', String(mo.sit || '').toUpperCase()];
     if (mo.sit === 'atrasado' && mo.estado === 'erro') { sit = ['vermelho', 'PAROU']; }
     if (mo.sit === 'falhou' && mo.estado === 'alerta') { sit = ['ambar', 'FALHOU']; }
@@ -606,37 +750,263 @@
         s += '<div class="mfl' + (mo.lim ? ' ambar' : '') + '" style="left:18px;top:' + y + 'px">' + (mo.lim ? 'NO LIMITE DO RITMO' : 'FOLGA NO RITMO') + '</div><div class="mft menor' + (mo.lim ? '' : ' cinza') + '" style="top:' + (y + 16) + 'px">' + U.esc(ap) + '</div>';
         y += 62;
         if (mo.lim) {
+          var dl = dicasLimite(mo);
           s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE FAZER</div><div class="mfd" style="top:' + (y + 16) + 'px">';
-          for (i = 0; i < DICAS_LIMITE.length; i++) { s += '<div><b>' + (i + 1) + '.</b> ' + U.esc(DICAS_LIMITE[i]) + '</div>'; }
+          for (i = 0; i < dl.length; i++) { s += '<div class="mfd1"><b>' + (i + 1) + '.</b> ' + U.esc(dl[i]) + '</div>'; }
           s += '</div>';
-          y += 16 + 21 * DICAS_LIMITE.length + 8;
+          y += 16 + 21 * dl.length + 8;
         }
       }
       // conte\u00fado do modelo: quando s\u00f3 cabe um bloco, o achado no conte\u00fado vale mais que a \u00faltima falha
       var ct = conteudoTxt(mo), umSo = 572 - y < 100;
       var mostraCt = ct && (ct.ruim || !umSo), mostraFalha = !(umSo && mostraCt);
       if (mostraCt) {
-        var duas = ct.ruim && !umSo;
+        var duas = (ct.ruim || ct.par) && !umSo;
         s += '<div class="mfl' + (ct.ruim ? ' ambar' : '') + '" style="left:18px;top:' + y + 'px">' + (ct.ruim ? 'CONTE\u00daDO DO MODELO \u00b7 VALE CONFERIR' : 'CONTE\u00daDO DO MODELO') + '</div><div class="mft menor' + (duas ? '' : ' uma') + (ct.ruim ? '' : ' cinza') + '" style="top:' + (y + 16) + 'px' + (y > 470 ? ';width:810px' : '') + '">' + U.esc(ct.txt) + '</div>';
         y += duas ? 66 : 45;
       }
       var estreito = '', uma = '';
       if (y > 470) { estreito = ';width:810px'; uma = ' uma'; } // l\u00e1 embaixo sobra uma linha s\u00f3, e ela n\u00e3o pode passar por baixo do bot\u00e3o Voltar
+      // tentativas escondidas (1.7): o Power BI repete sozinho a carga que falhou, e a atualiza\u00e7\u00e3o demora o dobro
+      var rtQ = mo.rt ? quando(mo.rt[2]) : null;
+      var rtTxt = mo.rt ? mo.rt[0] + ' das \u00faltimas ' + mo.rt[1] + ' s\u00f3 deu certo na ' + (mo.rt[4] || 2) + '\u00aa tentativa' + (rtQ !== null ? ' (' + quandoTxt(rtQ) + (mo.rt[3] ? ': ' + mo.rt[3] : '') + ')' : '') + '.' : '';
       if (!mostraFalha) { /* o bloco de conte\u00fado ocupou o lugar */ } else
       if (mo.uf) {
-        var tf = quando(mo.uf.t);
-        s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') + '</div>';
+        var tf = quando(mo.uf.t), juntos = tf !== null ? falharamJuntos(mo, tf) : [];
+        s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') +
+          (juntos.length ? U.esc(' \u00b7 no mesmo hor\u00e1rio tamb\u00e9m falh' + (juntos.length > 1 ? 'aram: ' : 'ou: ') + juntos.slice(0, 2).join(', ')) : '') + (rtTxt ? U.esc(' \u00b7 ' + rtTxt) : '') + '</div>';
       } else {
-        s += '<div class="mfl" style="left:18px;top:' + y + 'px">SEM FALHA NO HIST\u00d3RICO</div><div class="mft cinza' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">Nenhuma das \u00faltimas ' + (mo.n || 0) + ' atualiza\u00e7\u00f5es falhou.</div>';
+        s += '<div class="mfl" style="left:18px;top:' + y + 'px">SEM FALHA NO HIST\u00d3RICO</div><div class="mft cinza' + (ap ? ' menor' : '') + uma + '" style="top:' + (y + 16) + 'px' + estreito + '">' + U.esc(rtTxt ? 'Nenhuma falhou de vez, mas ' + rtTxt : 'Nenhuma das \u00faltimas ' + (mo.n || 0) + ' atualiza\u00e7\u00f5es falhou.') + '</div>';
       }
     }
     U.html('mFichaCorpo', s);
   }
   function abrirFicha(i) {
-    m.ficha = parseInt(i, 10);
-    if (isNaN(m.ficha) || !m.lista[m.ficha] || !m.lista[m.ficha].modelo) { m.ficha = -1; return; }
+    var n = parseInt(i, 10), l = m.lista[n];
+    if (isNaN(n) || !l || !l.modelo) { return; }
+    m.ficha = n; m.fichaTipo = 'modelo'; m.fichaId = l.modelo.id; m.fichaVolta = ''; m.fichaItem = null;
     U.classe(U.$('mFicha'), 'esc', false);
     renderFicha();
+  }
+  function abrirModeloId(id) {
+    var mods = modelosDo('bi'), i, achou = false;
+    for (i = 0; i < mods.length; i++) { if (mods[i].id === id) { achou = true; } }
+    if (!achou) { return; }
+    m.ficha = 0; m.fichaTipo = 'modelo'; m.fichaId = id; m.fichaVolta = 'mapa'; m.fichaItem = null;
+    U.classe(U.$('mFicha'), 'esc', false);
+    renderFicha();
+  }
+  function abrirItem(i) {
+    var n = parseInt(i, 10), l = m.lista[n];
+    if (isNaN(n) || !l) { return; }
+    if (l.modelo) { abrirFicha(n); return; }
+    m.ficha = n; m.fichaTipo = 'item'; m.fichaItem = l; m.fichaId = ''; m.fichaVolta = '';
+    U.classe(U.$('mFicha'), 'esc', false);
+    renderFicha();
+  }
+  function abrirMapa() {
+    if (!modelosDo('bi').length) { return; }
+    m.ficha = 0; m.fichaTipo = 'mapa'; m.fichaId = ''; m.fichaVolta = ''; m.fichaItem = null;
+    U.classe(U.$('mFicha'), 'esc', false);
+    renderFicha();
+  }
+
+  /* ---------- ficha de um item (1.7): o que o Monitor viu, a carga do gateway e silenciar ---------- */
+  var NOME_EST = { ok: ['verde', 'OK'], alerta: ['ambar', 'ALERTA'], erro: ['vermelho', 'PROBLEMA'], info: ['ciano', 'AVISO'], off: ['cinza', 'PARADO'] };
+  /* o que fazer, pelo tipo do item (chave que o coletor publica); s\u00f3 aparece quando o item n\u00e3o est\u00e1 verde */
+  var DICA_ITEM = [
+    [/^vm\|api/, 'No console do Google Cloud (Compute Engine \u203a Inst\u00e2ncias de VM), veja se a VM est\u00e1 ligada. Se estiver, abra o SSH e rode: sudo systemctl restart caddy bot-api bot-whatsapp.'],
+    [/^vm\|https/, 'Na VM (SSH): sudo systemctl restart caddy, para ele tentar renovar o certificado na hora. O dom\u00ednio do DuckDNS precisa apontar para o IP da VM.'],
+    [/^vm\|relogio/, 'Na VM (SSH): sudo timedatectl set-ntp true, para o rel\u00f3gio voltar a acertar sozinho.'],
+    [/^a1\|/, 'Renovar o certificado A1 com a certificadora e instalar o .pfx novo no servidor (o deploy autom\u00e1tico usa o segredo CERTIFICADO_PFX_BASE64 do GitHub).'],
+    [/^gw\|/, 'No PC do gateway: veja se est\u00e1 ligado e com internet; no app do gateway, Configura\u00e7\u00f5es de servi\u00e7o \u203a Reiniciar agora.'],
+    [/^gwver\|/, 'Baixar o instalador mais recente do gateway no site da Microsoft e instalar por cima, fora do hor\u00e1rio de pico: a configura\u00e7\u00e3o continua a mesma.'],
+    [/^gwpes\|/, 'Para n\u00e3o depender de login, instalar o gateway no modo padr\u00e3o (servi\u00e7o do Windows) e passar as fontes para ele.'],
+    [/^lic\|/, 'Centro de administra\u00e7\u00e3o do Microsoft 365 \u203a Cobran\u00e7a \u203a Seus produtos: renove se algu\u00e9m ainda usa; se ningu\u00e9m usa, pode deixar vencer.'],
+    [/^cert\|venc/, 'Nada a fazer por enquanto: o GitHub renova sozinho, em geral bem antes do vencimento.'],
+    [/^cert\|/, 'No Safari do iPad, abra letsencrypt.org/certificates, toque na raiz que aparece no fim da cadeia (arquivo .der) e instale o perfil.'],
+    [/^gh\|/, 'Nada a fazer: o problema \u00e9 do GitHub. Os dados voltam a chegar sozinhos quando ele normalizar.'],
+    [/^ms\|/, 'Nada a fazer: o problema \u00e9 na Microsoft. Se uma atualiza\u00e7\u00e3o falhar nesse per\u00edodo, rode de novo depois.'],
+    [/^web\|/, 'Abra o site no navegador: se estiver fora do ar, espere voltar e atualize o modelo que usa essa fonte.'],
+    [/^fonte\|/, 'Em Gerenciar conex\u00f5es e gateways (engrenagem do Power BI), abra a conex\u00e3o e teste: aparece a mensagem completa do erro.'],
+    [/^lento\|/, 'Quando v\u00e1rios modelos ficam lentos juntos, a causa costuma ser comum: veja primeiro o PC do gateway (CPU e mem\u00f3ria) e o banco SQL.'],
+    [/^Disco /, 'Configura\u00e7\u00f5es \u203a Sistema \u203a Armazenamento \u203a Arquivos tempor\u00e1rios; e esvaziar a Lixeira e a pasta Downloads.']
+  ];
+  function dicaItem(it) {
+    if (!it || it.estado === 'ok' || it.estado === 'off') { return ''; }
+    for (var i = 0; i < DICA_ITEM.length; i++) { if (DICA_ITEM[i][0].test(it.chave || '') || DICA_ITEM[i][0].test(it.nome || '')) { return DICA_ITEM[i][1]; } }
+    return '';
+  }
+  function itemAtual(velho) {
+    var k = velho.chave || velho.nome, g, i, l;
+    for (g = 0; g < GRUPOS.length; g++) {
+      l = itensDo(GRUPOS[g].id);
+      for (i = 0; i < l.length; i++) { if ((l[i].chave || l[i].nome) === k) { return l[i]; } }
+    }
+    return velho;
+  }
+  /* o detalhe vem com as partes separadas por " \u00b7 ": na ficha, cada parte numa linha */
+  function partes(txt) {
+    var l = String(txt || '').split(' \u00b7 '), r = [], i;
+    for (i = 0; i < l.length; i++) { if (l[i]) { r.push(/^[a-z0-9-]+\.[a-z]/.test(l[i]) ? l[i] : l[i].charAt(0).toUpperCase() + l[i].slice(1)); } } // endere\u00e7o fica como est\u00e1
+    return r;
+  }
+  function horaDe(ms) { return U.pad2(local(ms).getHours()) + 'h'; }
+  function sugestaoTxt(sg) {
+    if (!sg) { return ''; }
+    if (sg.ok) {
+      return 'As ' + sg.n + ' agendas de meia em meia hora j\u00e1 est\u00e3o bem distribu\u00eddas (pico simulado de ' + sg.pico + ' ao mesmo tempo)' +
+        (sg.turmaB && sg.turmaB.length ? ': ' + sg.turmaB.length + ' j\u00e1 rodam em :15 e :45, no fuso (UTC+05:45) Katmandu.' : '.');
+    }
+    var nep = [], bra = [], i;
+    for (i = 0; i < (sg.mover || []).length; i++) { (sg.mover[i][1] === 'nepal' ? nep : bra).push(sg.mover[i][0]); }
+    return (nep.length ? 'Passar ' + nep.join(', ') + ' para o fuso (UTC+05:45) Katmandu na atualiza\u00e7\u00e3o agendada: ' + U.plural(nep.length, 'ela passa', 'elas passam') + ' a rodar em :15 e :45' : '') +
+      (bra.length ? (nep.length ? '; e ' : 'Passar ') + bra.join(', ') + ' de volta para o fuso de Bras\u00edlia' : '') +
+      '. O pico simulado cai de ' + sg.pico + ' para ' + sg.novo + ' atualiza\u00e7\u00f5es ao mesmo tempo.';
+  }
+  /* carga do gateway: uma barra por hora (altura = pico da hora, parte clara = m\u00e9dia) */
+  function graficoGateway(cg, y) {
+    var hh = cg.hh, h0 = quando(cg.h0), de = quando(cg.de), max = 1, kMax = 0, k, s = '';
+    for (k = 0; k < 24; k++) { if (hh[k][1] >= max) { max = hh[k][1]; kMax = k; } }
+    s += '<div class="mgw" style="top:' + y + 'px">';
+    for (k = 0; k < 24; k++) {
+      var p = hh[k][1], md = hh[k][0], hp = p ? Math.max(3, Math.round(70 * p / max)) : 0, hm = md ? Math.max(2, Math.round(70 * md / max)) : 0;
+      var parcial = de !== null && h0 !== null && h0 + (k + 1) * 3600000 <= de;
+      s += '<i class="pk' + (parcial ? ' parc' : '') + '" style="left:' + (k * 39) + 'px;height:' + hp + 'px"></i>';
+      if (hm) { s += '<i class="mdg' + (parcial ? ' parc' : '') + '" style="left:' + (k * 39) + 'px;height:' + Math.min(hm, hp) + 'px"></i>'; }
+      if (k === kMax || k === 23) { s += '<span style="left:' + (k * 39) + 'px;bottom:' + (hp + 2) + 'px">' + p + '</span>'; }
+    }
+    s += '</div>';
+    if (h0 !== null) {
+      for (k = 0; k < 24; k++) {
+        var hr = local(h0 + k * 3600000).getHours();
+        if (k === 23) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:' + (y + 90) + 'px">agora</div>'; }
+        else if (hr % 3 === 0 && k < 22) { s += '<div class="mhr" style="left:' + (18 + k * 39 - 3) + 'px;top:' + (y + 90) + 'px">' + U.pad2(hr) + 'h</div>'; }
+      }
+    }
+    return { html: s, kMax: kMax, max: max, h0: h0, de: de };
+  }
+  function renderItem() {
+    var it = itemAtual(m.fichaItem || {}), agora = agoraMs(), est = NOME_EST[it.estado] || NOME_EST.info, t = quando(it.quando), ate = silenciado(it), i;
+    if (!m.fichaItem) { fecharFicha(); return; }
+    var s = '<div class="ptit">' + U.esc(it.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : est[0]) + '">' + (ate ? 'SILENCIADO' : est[1]) + '</span></div>';
+    var y = 82, cg = it.carga, ps = partes(it.detalhe), sub = (it.valor || '') + (t !== null ? ' \u00b7 desde ' + quandoTxt(t) + ' (' + idadeTxt(agora - t) + ')' : '');
+    var ehGw = !!(cg && cg.hh && cg.hh.length === 24);
+    if (ehGw) {
+      // no gateway, a vers\u00e3o e o suporte v\u00e3o no subt\u00edtulo; a carga j\u00e1 est\u00e1 nos n\u00fameros
+      for (i = 1; i < ps.length; i++) { if (/^(Vers\u00e3o|Com suporte)/.test(ps[i])) { sub += ' \u00b7 ' + ps[i].charAt(0).toLowerCase() + ps[i].slice(1); } }
+      ps = [];
+    }
+    s += '<div class="mfsub">' + U.esc(sub) + '</div>';
+    if (ehGw) {
+      // gateway: quatro n\u00fameros, o gr\u00e1fico hora a hora e a sugest\u00e3o de hor\u00e1rios
+      var gr = graficoGateway(cg, 198);
+      s += bloco(18, 'AGORA', String(cg.agora || 0), U.plural(cg.agora || 0, 'atualiza\u00e7\u00e3o rodando', 'atualiza\u00e7\u00f5es rodando'));
+      s += bloco(266, 'M\u00c9DIA', String(cg.media || 0).replace('.', ','), 'ao mesmo tempo, nas \u00faltimas ' + (cg.horas || 24) + ' h');
+      s += bloco(514, 'PICO', String(cg.pico || gr.max), gr.h0 !== null ? 'na hora mais cheia: ' + horaDe(gr.h0 + gr.kMax * 3600000) : '');
+      s += bloco(762, 'MODELOS', cg.n ? String(cg.n) : '\u2014', cg.n ? U.plural(cg.n, 'passa por ele', 'passam por ele') : '');
+      s += '<div class="mfl" style="left:18px;top:178px">ATUALIZA\u00c7\u00d5ES AO MESMO TEMPO, HORA A HORA \u00b7 barra = pico da hora \u00b7 parte clara = m\u00e9dia</div>' + gr.html;
+      y = 318;
+      if (gr.de !== null) { s += '<div class="mfnota" style="top:' + (y - 4) + 'px">O registro come\u00e7ou ' + quandoTxt(gr.de) + ': antes disso a carga aparece menor do que foi (barras apagadas).</div>'; y += 20; }
+      if (cg.sug) {
+        s += '<div class="mfl' + (cg.sug.ok ? '' : ' ambar') + '" style="left:18px;top:' + (y + 4) + 'px">' + (cg.sug.ok ? 'HOR\u00c1RIOS DAS AGENDAS' : 'SUGEST\u00c3O PARA ALIVIAR O PICO') + '</div><div class="mft menor" style="top:' + (y + 20) + 'px">' + U.esc(sugestaoTxt(cg.sug)) + '</div>';
+        y += 70;
+        if (!cg.sug.ok) { s += '<div class="mfnota" style="top:' + (y - 6) + 'px">O Power BI s\u00f3 deixa agendar em :00 e :30; no fuso de Katmandu os mesmos hor\u00e1rios caem em :15 e :45 de Bras\u00edlia. Calculado com a dura\u00e7\u00e3o t\u00edpica de cada modelo; o Monitor n\u00e3o muda nada sozinho.</div>'; y += 40; }
+      }
+      if (it.pes) { s += '<div class="mfnota ambar" style="top:' + y + 'px">Modo pessoal: o gateway roda como programa do usu\u00e1rio, n\u00e3o como servi\u00e7o do Windows. Se o PC reiniciar, s\u00f3 volta quando algu\u00e9m entrar nele.</div>'; y += 24; }
+    }
+    // o que o Monitor viu e o que fazer, um embaixo do outro (o navegador arruma as alturas)
+    var limite = podeSilenciar(it) ? 498 : 566, dica = dicaItem(it);
+    if ((ps.length || dica) && y + 72 <= limite) {
+      s += '<div class="mfx" style="top:' + (y + 6) + 'px;max-height:' + (limite - y - 6) + 'px">';
+      if (ps.length) {
+        s += '<div class="mfl2">O QUE O MONITOR VIU</div>';
+        for (i = 0; i < ps.length; i++) { s += '<div class="mfx1"><b>\u203a</b> ' + U.esc(ps[i]) + '</div>'; }
+      }
+      if (dica) { s += '<div class="mfl2' + (ps.length ? ' esp' : '') + '">O QUE FAZER</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
+      s += '</div>';
+    }
+    if (podeSilenciar(it)) {
+      s += '<div class="mfl" style="left:18px;top:504px">' + (ate ? 'SILENCIADO AT\u00c9 ' + U.esc(quandoTxt(ate)).toUpperCase() : 'J\u00c1 SABE DISSO?') + '</div>';
+      s += '<div class="mfnota" style="top:520px;left:430px;width:530px">' + (ate ? 'Fica cinza no fim da lista e fora da contagem do topo. Volta sozinho quando o prazo acabar ou o item mudar de estado.' :
+        'Silenciar tira da contagem do topo e manda para o fim da lista. Se o item mudar de estado (por exemplo, virar problema), ele volta na hora.') + '</div>';
+      if (ate) { s += '<div class="btn mfbtn" style="left:18px;top:522px;width:190px" data-act="mon-sil" data-arg="0">Voltar a avisar</div>'; }
+      else {
+        s += '<div class="btn mfbtn" style="left:18px;top:522px;width:126px" data-act="mon-sil" data-arg="1">Silenciar 1 dia</div>';
+        s += '<div class="btn mfbtn" style="left:152px;top:522px;width:126px" data-act="mon-sil" data-arg="7">7 dias</div>';
+        s += '<div class="btn mfbtn" style="left:286px;top:522px;width:126px" data-act="mon-sil" data-arg="30">30 dias</div>';
+      }
+    }
+    U.html('mFichaCorpo', s);
+  }
+
+  /* ---------- mapa das 24 horas (1.7): uma linha por modelo, uma coluna por hora ---------- */
+  var COR_FX = { o: '#2f9e68', m: '#f59e0b', x: '#ff7a7a' };
+  function renderMapa() {
+    var d = m.dados, g = grupoDados('bi') || {}, r = g.resumo || {}, mods = ordenarModelos(modelosDo('bi')), ger = d ? quando(d.gerado) : null, i, k;
+    if (!mods.length || ger === null) { fecharFicha(); return; }
+    var hFim = Math.floor(ger / 3600000), X0 = 262, P = 29, W = 25;
+    var gw = null, fer = itensDo('ferramentas');
+    for (i = 0; i < fer.length; i++) { if (fer[i].carga && fer[i].carga.hh && fer[i].carga.hh.length === 24 && !gw) { gw = fer[i]; } }
+    var hh = r.hh && r.hh.length === 24 ? r.hh : null, extras = (hh ? 1 : 0) + (gw ? 1 : 0);
+    var livre = 440 - extras * 26, alt = Math.max(14, Math.min(24, Math.floor(livre / mods.length))), cabem = Math.floor(livre / alt);
+    var lista = mods.length > cabem ? mods.slice(0, cabem - 1) : mods;
+    var h24 = r.h24 || [0, 0];
+    var s = '<div class="ptit">As \u00faltimas 24 horas, hora a hora</div><div class="mfp"><span class="pill ' + (h24[1] ? 'ambar' : 'verde') + '">' + h24[0] + ' CERTAS \u00b7 ' + h24[1] + ' ' + (h24[1] === 1 ? 'FALHA' : 'FALHAS') + '</span></div>';
+    s += '<div class="mfsub">Uma linha por modelo \u00b7 verde = deu certo \u00b7 \u00e2mbar = parte falhou \u00b7 vermelho = falhou \u00b7 escuro = sem atualiza\u00e7\u00e3o \u00b7 toque num modelo para abrir</div>';
+    // horas no alto (a \u00faltima coluna \u00e9 a hora atual, ainda pela metade)
+    for (k = 0; k < 24; k++) {
+      var hr = local((hFim - 23 + k) * 3600000).getHours();
+      if (k === 23) { s += '<div class="mmh" style="left:' + (X0 + k * P - 6) + 'px;width:' + (W + 12) + 'px">agora</div>'; }
+      else if (hr % 3 === 0 && k < 22) { s += '<div class="mmh' + (hr === 0 ? ' meia' : '') + '" style="left:' + (X0 + k * P - 6) + 'px;width:' + (W + 12) + 'px">' + U.pad2(hr) + 'h</div>'; }
+      if (hr === 0 && k > 0) { s += '<b class="mmv" style="left:' + (X0 + k * P - 3) + 'px;height:' + (Math.min(lista.length, cabem) * alt + extras * 26 + 14) + 'px"></b>'; }
+    }
+    var y = 96;
+    for (i = 0; i < lista.length; i++) {
+      var mo = lista[i], fx = mo.faixa && mo.faixa.length === 24 ? mo.faixa : '', est = COR[mo.estado] ? mo.estado : 'info';
+      s += '<div class="mmrow" data-act="mon-mapa-modelo" data-arg="' + U.esc(mo.id || '') + '" style="top:' + y + 'px;height:' + alt + 'px">' +
+        '<i class="md ' + est + '" style="background:' + COR[est] + ';top:' + Math.round(alt / 2 - 4) + 'px;width:8px;height:8px;left:18px"></i>' +
+        '<div class="mmq" style="line-height:' + alt + 'px">' + U.esc(mo.nome || '') + '</div>';
+      for (k = 0; k < 24; k++) {
+        var ch = fx ? fx.charAt(k) : '.';
+        s += '<i class="mmc" style="left:' + (X0 + k * P) + 'px;top:2px;width:' + W + 'px;height:' + (alt - 4) + 'px;background:' + (COR_FX[ch] || '#0e2238') + '"></i>';
+      }
+      s += '</div>';
+      y += alt;
+    }
+    if (lista.length < mods.length) { s += '<div class="mfnota" style="top:' + (y + 2) + 'px">+ ' + (mods.length - lista.length) + ' outros modelos (a lista do BI mostra todos)</div>'; y += alt; }
+    y += 8;
+    // soma de todos os modelos: quantas atualiza\u00e7\u00f5es terminaram em cada hora
+    var maisF = -1, nMaisF = 0, maisA = -1, nMaisA = 0;
+    if (hh) {
+      s += '<div class="mmrow tot" style="top:' + y + 'px;height:24px"><div class="mmq forte" style="line-height:24px">Todos os modelos</div>';
+      for (k = 0; k < 24; k++) {
+        var a = hh[k][0], b = hh[k][1], cor = b ? (a ? '#f59e0b' : '#ff7a7a') : (a ? '#2f9e68' : '#0e2238');
+        if (b > nMaisF) { nMaisF = b; maisF = k; }
+        if (a + b > nMaisA) { nMaisA = a + b; maisA = k; }
+        s += '<i class="mmc num" style="left:' + (X0 + k * P) + 'px;top:2px;width:' + W + 'px;height:20px;line-height:20px;background:' + cor + '">' + (a + b ? a + b : '') + '</i>';
+      }
+      s += '</div>';
+      y += 26;
+    }
+    if (gw) {
+      var cg = gw.carga, pmax = 1;
+      for (k = 0; k < 24; k++) { if (cg.hh[k][1] > pmax) { pmax = cg.hh[k][1]; } }
+      var gh0 = quando(cg.h0), desloc = gh0 !== null ? Math.round((gh0 / 3600000) - (hFim - 23)) : 0;
+      s += '<div class="mmrow tot" style="top:' + y + 'px;height:24px"><div class="mmq forte" style="line-height:24px">' + U.esc(gw.nome || 'Gateway') + ' \u00b7 pico</div>';
+      for (k = 0; k < 24; k++) {
+        var j = k - desloc, pk = j >= 0 && j < 24 ? cg.hh[j][1] : 0, op = pk ? 0.18 + 0.82 * pk / pmax : 0;
+        s += '<i class="mmc num gwc" style="left:' + (X0 + k * P) + 'px;top:2px;width:' + W + 'px;height:20px;line-height:20px;background:' + (pk ? 'rgba(34,211,238,' + op.toFixed(2) + ')' : '#0e2238') + (pk / pmax > 0.55 ? ';color:#04101c' : ';color:#cfe3ff') + '">' + (pk || '') + '</i>';
+      }
+      s += '</div>';
+      y += 26;
+    }
+    // o que chama aten\u00e7\u00e3o no dia
+    var notas = [];
+    if (nMaisF >= 2) { notas.push('hora com mais falhas: ' + horaDe((hFim - 23 + maisF) * 3600000) + ' (' + nMaisF + ')'); }
+    if (nMaisA > 0) { notas.push('hora mais cheia: ' + horaDe((hFim - 23 + maisA) * 3600000) + ' (' + nMaisA + ' atualiza\u00e7\u00f5es)'); }
+    if (notas.length) { s += '<div class="mfnota" style="top:' + Math.min(y + 6, 548) + 'px">' + U.esc(notas.join(' \u00b7 ')) + '</div>'; }
+    U.html('mFichaCorpo', s);
   }
 
   function render() {
@@ -1006,6 +1376,8 @@
     if (!m.buscando && t >= m.proxima && document.hidden !== true) { buscar(false); }
     if (t - m.ultimoRender > 30000) { render(); }
     if (t >= m.proximaVersao) { m.proximaVersao = t + 1800000; procurarVersao(); }
+    if (m.chave && m.dados && (dadosVelhos() || m.rede === 'offline')) { verGithub(); }
+    if (volta.ate && t > volta.ate) { volta.ate = 0; renderHero(); }
     if (m.noiteOn) { U.txt('mNoiteHora', hora(t)); }
     else if (noite.tela && t > m.acordadoAte && t - m.ultimoRender > 5000 && ehNoite() && !al.tocando) { seguro('noite', renderNoite); } // apaga logo que os 2 minutos passam
     if (al.tocando && document.hidden !== true && t >= al.falandoAte) {
@@ -1039,6 +1411,8 @@
         if (n) { noite.tela = !!n.tela; noite.som = !!n.som; if (n.ini >= 0 && n.ini < 24) { noite.ini = n.ini; } if (n.fim >= 0 && n.fim < 24) { noite.fim = n.fim; } }
       } catch (e2) { /* fica o padr\u00e3o */ }
       m.proximaVersao = agoraMs() + 1800000;
+      lerSil();
+      voltou();
       U.acoes['mon-atualizar'] = function () { if (m.novaVersao) { window.location.reload(); return; } m.proxima = 0; buscar(true); };
       U.acoes['mon-chave'] = function () { mostrarSetup(true); };
       U.acoes['mon-salvar'] = salvarChave;
@@ -1047,7 +1421,15 @@
       U.acoes['mon-fechar'] = fecharDetalhe;
       U.acoes['mon-pag'] = function (d) { m.pag += parseInt(d, 10) || 0; renderDetalhe(); };
       U.acoes['mon-modelo'] = function (i) { abrirFicha(i); };
-      U.acoes['mon-ficha-fechar'] = fecharFicha;
+      U.acoes['mon-item'] = function (i) { abrirItem(i); };
+      U.acoes['mon-mapa'] = abrirMapa;
+      U.acoes['mon-mapa-modelo'] = function (id) { abrirModeloId(id); };
+      U.acoes['mon-sil'] = function (dias) {
+        if (m.fichaTipo !== 'item' || !m.fichaItem) { return; }
+        silenciar(itemAtual(m.fichaItem), parseInt(dias, 10) || 0);
+        render();
+      };
+      U.acoes['mon-ficha-fechar'] = voltarFicha;
       U.acoes['mon-alarme'] = function () { mostrarAlarmeCfg(true); };
       U.acoes['mon-al-ligar'] = alternarAlarme;
       U.acoes['mon-al-testar'] = testarSom;
@@ -1066,13 +1448,14 @@
       }
       // qualquer toque: arma o som (exig\u00eancia do iOS) e mant\u00e9m a tela acesa por 2 minutos no hor\u00e1rio da noite
       var toque = function () {
+        seguro('volta', voltou);
         if (al.ligado && !som.liberado) { prepararSom(false); renderAlarmeBotao(); renderAlarmeCfg(); }
         if (noite.tela) { var t = agoraMs() + 120000; if (t > m.acordadoAte) { m.acordadoAte = t; } }
       };
       document.addEventListener('touchend', toque, false);
       document.addEventListener('mousedown', toque, false);
       if (!m.chave) { mostrarSetup(true); }
-      document.addEventListener('visibilitychange', function () { if (!document.hidden) { m.proxima = 0; } }, false);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) { m.proxima = 0; seguro('volta', voltou); } }, false);
       if (window.applicationCache) {
         window.applicationCache.addEventListener('updateready', versaoPronta, false);
       }

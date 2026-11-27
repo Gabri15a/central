@@ -194,3 +194,36 @@ body.noite { background: #000000 !important; }
 #mNoiteLinha { position: absolute; left: 0; top: 440px; width: 1024px; text-align: center; font-size: 18px; color: #1d3654; }
 #mNoiteDot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 10px; opacity: 0.5; }
 #mNoiteDica { position: absolute; left: 0; top: 706px; width: 1024px; text-align: center; font-size: 11px; color: #0f2036; letter-spacing: 3px; }
+
+/* ---------- 1.7: silenciar, ficha de item, carga do gateway e mapa das 24 horas ---------- */
+.mi.sil, .mc.sil { opacity: 0.5; }
+.mres24.lnk { color: #7fc4ff; }
+.mres24.lnk.ruim { color: #f59e0b; }
+.mfd1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfx { position: absolute; left: 18px; width: 950px; font-size: 16px; line-height: 24px; color: #ffffff; overflow: hidden; }
+.mfx div { max-height: 48px; overflow: hidden; }
+.mfx b { color: #22d3ee; margin-right: 4px; }
+.mfl2 { font-size: 10px; letter-spacing: 2px; color: #8b9dc3; font-weight: 700; line-height: 16px; margin-bottom: 4px; }
+.mfl2.esp { margin-top: 18px; }
+.mfx1.dica { font-size: 15px; line-height: 22px; color: #cfe3ff; max-height: 66px; }
+.mfnota { position: absolute; left: 18px; width: 950px; font-size: 12px; line-height: 18px; color: #6b7fa3; }
+.mfnota.ambar { color: #f59e0b !important; }
+.mfbtn { height: 46px; line-height: 44px; font-size: 14px; }
+/* gateway: uma barra por hora; o pico é a barra toda, a média é a parte clara */
+.mgw { position: absolute; left: 18px; width: 956px; height: 84px; border-bottom: 1px solid #14304d; }
+.mgw i { position: absolute; bottom: 0; width: 34px; display: block; border-radius: 3px 3px 0 0; }
+.mgw i.pk { background: #1b4a6b; }
+.mgw i.mdg { background: #22d3ee; }
+.mgw i.parc { opacity: 0.35; }
+.mgw span { position: absolute; width: 34px; text-align: center; font-size: 11px; font-weight: 700; color: #cfe3ff; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.mhr { position: absolute; width: 40px; text-align: center; font-size: 10px; color: #4b6284; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+/* mapa: uma linha por modelo, uma coluna por hora */
+.mmh { position: absolute; top: 76px; text-align: center; font-size: 10px; color: #4b6284; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.mmh.meia { color: #8b9dc3; }
+.mmv { position: absolute; top: 90px; width: 0; border-left: 1px dashed #2a4a6e; display: block; }
+.mmrow { position: absolute; left: 0; width: 990px; }
+.mmrow.tot { border-top: 1px solid #14304d; }
+.mmq { position: absolute; left: 32px; top: 0; width: 220px; font-size: 12px; font-weight: 600; color: #cfe3ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmq.forte { left: 18px; width: 236px; font-size: 10px; letter-spacing: 1px; color: #8b9dc3; font-weight: 700; text-transform: uppercase; }
+.mmc { position: absolute; display: block; border-radius: 3px; }
+.mmc.num { font-style: normal; font-size: 10px; font-weight: 700; color: #04101c; text-align: center; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }

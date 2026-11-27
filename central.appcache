@@ -1,12 +1,12 @@
 CACHE MANIFEST
-# Cockpit Central 1.6 · 2026-11-27T12:19:41Z
+# Cockpit Central 1.7 · 2026-11-27T16:00:43Z
 index.html
-css/cockpit.css?v=1.6
-css/monitor.css?v=1.6
-js/cockpit.js?v=1.6
-js/sha256.js?v=1.6
-js/aes.js?v=1.6
-js/monitor.js?v=1.6
+css/cockpit.css?v=1.7
+css/monitor.css?v=1.7
+js/cockpit.js?v=1.7
+js/sha256.js?v=1.7
+js/aes.js?v=1.7
+js/monitor.js?v=1.7
 img/icone-152.png
 
 NETWORK:
