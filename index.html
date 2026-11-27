@@ -14,13 +14,13 @@
 <link rel="apple-touch-icon" sizes="120x120" href="img/icone-120.png">
 <link rel="apple-touch-icon" sizes="152x152" href="img/icone-152.png">
 <link rel="apple-touch-icon" sizes="180x180" href="img/icone-180.png">
-<link rel="stylesheet" href="css/cockpit.css?v=1.3">
-<link rel="stylesheet" href="css/monitor.css?v=1.3">
+<link rel="stylesheet" href="css/cockpit.css?v=1.4">
+<link rel="stylesheet" href="css/monitor.css?v=1.4">
 <script>window.COCKPIT_UTC_MIN = -180;</script>
-<script src="js/cockpit.js?v=1.3"></script>
-<script src="js/sha256.js?v=1.3"></script>
-<script src="js/aes.js?v=1.3"></script>
-<script src="js/monitor.js?v=1.3"></script>
+<script src="js/cockpit.js?v=1.4"></script>
+<script src="js/sha256.js?v=1.4"></script>
+<script src="js/aes.js?v=1.4"></script>
+<script src="js/monitor.js?v=1.4"></script>
 </head>
 <body>
 <div id="app">
@@ -64,6 +64,7 @@
     <div id="mG-ferramentas" class="card mgrupo"></div>
     <div id="mG-rotinas" class="card mgrupo"></div>
     <div id="mG-pendencias" class="card mgrupo"></div>
+    <div id="mEv" class="card mgrupo" data-act="mon-grupo" data-arg="eventos"></div>
     <div id="mSetup" class="card esc">
       <div class="ptit">Ligar o Monitor</div>
       <div class="mst">Digite a <b>chave da Central</b>. Ela está no PC, no arquivo <b>CHAVE-DO-IPAD.txt</b>
@@ -82,17 +83,30 @@
       <div id="mDetPag"></div>
       <div id="mDetFechar" class="btn pri" data-act="mon-fechar">Fechar</div>
     </div>
+    <div id="mFicha" class="card esc">
+      <div id="mFichaCorpo"></div>
+      <div id="mFichaVoltar" class="btn pri" data-act="mon-ficha-fechar">Voltar</div>
+    </div>
     <div id="mAlCfg" class="card esc">
-      <div class="ptit">Alarme sonoro</div>
-      <div class="mst">Quando aparecer um <b>problema novo</b> (vermelho) ou os dados pararem de chegar, o iPad toca um alarme
-        e mostra o aviso em tela cheia até você tocar em <b>Ciente</b>.<br>
-        Funciona com o Monitor aberto na tela: deixe o iPad na tomada, com <b>Ajustes &#8250; Geral &#8250; Bloqueio Automático &#8250; Nunca</b>
-        e o volume alto. Sempre que abrir o app, toque uma vez na tela para armar o som.</div>
+      <div class="ptit">Alarme</div>
+      <div class="mst">Quando aparecer um <b>problema novo</b> (vermelho) ou os dados pararem de chegar, o iPad toca o alarme,
+        <b>fala qual foi o problema</b> e mostra o aviso em tela cheia até você tocar em <b>Ciente</b>.<br>
+        Funciona com o Monitor aberto na tela: iPad na tomada, <b>Ajustes &#8250; Geral &#8250; Bloqueio Automático &#8250; Nunca</b>
+        e volume alto. Sempre que abrir o app, toque uma vez na tela para armar o som.</div>
       <div id="mAlEstado">&#160;</div>
       <div id="mAlLigar" class="btn pri" data-act="mon-al-ligar">Ligar alarme</div>
       <div id="mAlTestar" class="btn" data-act="mon-al-testar">Testar som</div>
+      <div id="mAlVoz" class="btn" data-act="mon-al-voz">Voz: ligada</div>
       <div id="mAlFechar" class="btn" data-act="mon-al-fechar">Fechar</div>
+      <div id="mNoiteRot" class="mfl">À NOITE, DAS</div>
+      <div id="mNoiteIni" class="btn" data-act="mon-noite" data-arg="ini">22:00</div>
+      <div id="mNoiteRot2" class="mfl">ÀS</div>
+      <div id="mNoiteFim" class="btn" data-act="mon-noite" data-arg="fim">06:00</div>
+      <div id="mNoiteTela" class="btn" data-act="mon-noite" data-arg="tela">Tela escura: desligada</div>
+      <div id="mNoiteSom" class="btn" data-act="mon-noite" data-arg="som">Sem som à noite: desligado</div>
       <div id="mAlMsg"></div>
+      <div id="mAlNota">Tela escura: nesse horário o iPad fica só com a hora, bem fraquinha, e acende ao toque ou quando o alarme dispara.
+        Sem som: um problema da noite só toca quando o horário acabar. Toque nas horas para mudar.</div>
     </div>
     <div id="mAlerta" class="esc">
       <div id="mAlTit">PROBLEMA NOVO</div>
@@ -253,7 +267,12 @@
 
   <div id="rodape" data-livre="1">
     <span class="l">Central · o PC publica o status e o iPad lê pela própria internet</span>
-    <span class="r">Cockpit 1.3 · Monitor da Central</span>
+    <span class="r">Cockpit 1.4 · Monitor da Central</span>
+  </div>
+  <div id="mNoite" class="esc" data-act="mon-noite-acordar">
+    <div id="mNoiteHora">--:--</div>
+    <div id="mNoiteLinha"><i id="mNoiteDot"></i><span id="mNoiteTxt">&#160;</span></div>
+    <div id="mNoiteDica">TOQUE PARA ACENDER</div>
   </div>
   <div id="aviso" data-act="aviso"></div>
   <div id="flash"></div>

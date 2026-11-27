@@ -1,8 +1,11 @@
 /* Central \u00b7 Monitor (aba do Cockpit, vers\u00e3o web para o Safari do iPad 2).
    Busca pela internet do pr\u00f3prio iPad o status que o coletor do PC publica no GitHub,
-   abre com a chave da Central (AES-256-CTR, chave = SHA-256 de "central:" + chave digitada)
-   e mostra o sem\u00e1foro s\u00f3 com os grupos que o PC publica (config.json > grupos no PC).
-   Alarme sonoro opcional: toca quando aparece um problema novo (vermelho) ou os dados param de chegar.
+   abre com a chave da Central (AES-256-CTR, chave = SHA-256 de "central:" + chave digitada) e mostra:
+   - o painel de sa\u00fade dos modelos do Power BI (ritmo, hist\u00f3rico, quem saiu do ritmo);
+   - as ferramentas e as fontes (gateway, banco, planilhas);
+   - os acontecimentos (o que falhou, parou ou voltou ao normal);
+   - a ficha de cada modelo, com o erro em portugu\u00eas e o que fazer.
+   Alarme opcional: toca, fala qual foi o problema e mostra o aviso em tela cheia.
    Somente ES5. */
 (function () {
   'use strict';
@@ -12,10 +15,12 @@
   var LS_ULTIMO = 'central.ultimo';
   var LS_ALARME = 'central.alarme';
   var LS_VISTOS = 'central.alarme.vistos';
+  var LS_VOZ = 'central.voz';
+  var LS_NOITE = 'central.noite';
   var INTERVALO = 60000;
   var GRUPOS = [
     { id: 'bi', nome: 'BI' },
-    { id: 'ferramentas', nome: 'FERRAMENTAS' },
+    { id: 'ferramentas', nome: 'FERRAMENTAS E FONTES' },
     { id: 'rotinas', nome: 'ROTINAS DO CLAUDE' },
     { id: 'pendencias', nome: 'PEND\u00caNCIAS' }
   ];
@@ -26,12 +31,17 @@
     chave: ['vermelho', 'CHAVE ERRADA'], semchave: ['ambar', 'SEM CHAVE'], semdados: ['ambar', 'SEM DADOS'],
     erro: ['vermelho', 'ERRO']
   };
-  var m = { chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0, det: null, pag: 0, tentativas: 0 };
+  var m = {
+    chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0,
+    det: null, pag: 0, tentativas: 0, ficha: -1, lista: [], novaVersao: false, proximaVersao: 0, erroInterno: '', acordadoAte: 0, noiteOn: false
+  };
   var POR_PAGINA = 10;
   /* alarme: toca sem parar nos 3 primeiros minutos e depois lembra a cada 5 minutos, at\u00e9 tocar em Ciente */
-  var ALARME_FORTE = 180000, REPETE_FORTE = 2600, REPETE_FRACO = 300000;
-  var al = { ligado: false, base: false, vistos: {}, tocando: false, desde: 0, ultimoSom: 0, lista: [] };
+  var ALARME_FORTE = 180000, REPETE_FORTE = 2600, REPETE_FRACO = 300000, REPETE_FALA = 45000;
+  var al = { ligado: false, base: false, vistos: {}, tocando: false, desde: 0, ultimoSom: 0, ultimaFala: 0, falandoAte: 0, lista: [] };
   var som = { el: null, ac: null, liberado: false, elOk: false };
+  var voz = { ok: false, ligada: true };
+  var noite = { tela: false, som: false, ini: 22, fim: 6 };
 
   function ler(k) { try { return window.localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function gravar(k, v) {
@@ -46,8 +56,17 @@
   }
   function agoraMs() { return new Date().getTime(); }
   function quando(iso) { var t = iso ? Date.parse(iso) : NaN; return isNaN(t) ? null : t; }
-  /* hora de Bras\u00edlia, mesmo com o fuso desatualizado do iOS 9 */
-  function hora(ms) { var d = new Date(ms); return U.hhmm(U.corr ? U.corr(d) : d); }
+  /* rel\u00f3gio de Bras\u00edlia, mesmo com o fuso desatualizado do iOS 9 */
+  function local(ms) { var d = new Date(ms); return U.corr ? U.corr(d) : d; }
+  function hora(ms) { return U.hhmm(local(ms)); }
+  function meiaNoite(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  /* 02:31 \u00b7 ontem 21:30 \u00b7 25/11 21:04 */
+  function quandoTxt(ms) {
+    var d = local(ms), dif = Math.round((meiaNoite(local(agoraMs())) - meiaNoite(d)) / 86400000);
+    if (dif === 0) { return U.hhmm(d); }
+    if (dif === 1) { return 'ontem ' + U.hhmm(d); }
+    return U.pad2(d.getDate()) + '/' + U.pad2(d.getMonth() + 1) + ' ' + U.hhmm(d);
+  }
   function idadeTxt(ms) {
     var min = Math.floor(Math.max(0, ms) / 60000);
     if (min < 1) { return 'agora'; }
@@ -56,6 +75,24 @@
     if (h < 24) { return 'h\u00e1 ' + h + 'h' + (min % 60 ? U.pad2(min % 60) : ''); }
     var d = Math.floor(h / 24);
     return 'h\u00e1 ' + d + ' ' + U.plural(d, 'dia', 'dias');
+  }
+  /* 12 min \u00b7 1h07 \u00b7 3 dias */
+  function durCurta(ms) {
+    var min = Math.round(Math.max(0, ms) / 60000);
+    if (min < 60) { return min + ' min'; }
+    if (min < 2880) { return Math.floor(min / 60) + 'h' + (min % 60 ? U.pad2(min % 60) : ''); }
+    return Math.round(min / 1440) + ' dias';
+  }
+  /* 49 s \u00b7 27 min 47 s \u00b7 1h05 */
+  function durLonga(s) {
+    s = Math.max(0, Math.round(s));
+    if (s < 60) { return s + ' s'; }
+    if (s < 3600) { return Math.floor(s / 60) + ' min' + (s % 60 ? ' ' + (s % 60) + ' s' : ''); }
+    return Math.floor(s / 3600) + 'h' + U.pad2(Math.floor((s % 3600) / 60));
+  }
+  /* roda um peda\u00e7o do desenho sem deixar um erro nele parar a busca e o alarme */
+  function seguro(nome, f) {
+    try { f(); } catch (e) { m.erroInterno = nome + ': ' + String((e && e.message) || e).substr(0, 80); }
   }
 
   /* ---------- de onde vem o status ---------- */
@@ -115,7 +152,7 @@
       m.buscando = false;
       m.tentativas++;
       m.proxima = agoraMs() + INTERVALO;
-      tratar(status, texto);
+      seguro('leitura', function () { tratar(status, texto); });
       render();
     }
     try {
@@ -128,14 +165,17 @@
     } catch (e) { fim(0, ''); }
   }
 
-  /* ---------- grupos publicados pelo PC ---------- */
-  function itensDo(grupo) {
-    var d = m.dados, itens = [];
+  /* ---------- o que o PC publicou ---------- */
+  function grupoDados(id) {
+    var d = m.dados;
     if (d && d.grupos) {
-      for (var i = 0; i < d.grupos.length; i++) { if (d.grupos[i] && d.grupos[i].id === grupo) { itens = d.grupos[i].itens || []; } }
+      for (var i = 0; i < d.grupos.length; i++) { if (d.grupos[i] && d.grupos[i].id === id) { return d.grupos[i]; } }
     }
-    return itens;
+    return null;
   }
+  function itensDo(id) { var g = grupoDados(id); return (g && g.itens) || []; }
+  function modelosDo(id) { var g = grupoDados(id); return (g && g.modelos) || []; }
+  function eventosDoPC() { return (m.dados && m.dados.eventos) || []; }
   /* s\u00f3 os grupos que o PC publica, na ordem do Monitor; sem dados, BI e Ferramentas */
   function gruposVisiveis() {
     var d = m.dados, vis = [], i, j;
@@ -146,13 +186,20 @@
     }
     return vis.length ? vis : GRUPOS.slice(0, 2);
   }
-  /* 1 grupo: tela toda \u00b7 2: cart\u00f5es altos lado a lado \u00b7 3 e 4: grade 2x2 (o 3\u00ba ocupa a linha de baixo) */
+  /* 2 grupos: BI alto \u00e0 esquerda; ferramentas e acontecimentos \u00e0 direita. 3 ou 4 grupos: grade 2x2 */
   function posicoes(vis) {
-    var n = vis.length, pos = {}, i;
+    var n = vis.length, pos = {}, i, temEv = !!(m.dados && m.dados.eventos);
+    if (n <= 2 && temEv) {
+      pos[vis[0].id] = { x: 16, y: 114, w: 488, h: 552 };
+      if (n === 2) { pos[vis[1].id] = { x: 520, y: 114, w: 488, h: 296 }; pos.ev = { x: 520, y: 422, w: 488, h: 244 }; }
+      else { pos.ev = { x: 520, y: 114, w: 488, h: 552 }; }
+      return pos;
+    }
     for (i = 0; i < n; i++) {
-      var alto = n <= 2, largo = n === 1 || (n === 3 && i === 2);
+      var alto = n <= 2, largo = n === 1 || (n === 3 && i === 2 && !temEv);
       pos[vis[i].id] = { x: largo || i % 2 === 0 ? 16 : 520, y: alto || i < 2 ? 114 : 396, w: largo ? 992 : 488, h: alto ? 552 : 270 };
     }
+    if (n === 3 && temEv) { pos.ev = { x: 520, y: 396, w: 488, h: 270 }; }
     return pos;
   }
   function contar() {
@@ -172,21 +219,33 @@
     return agoraMs() - gerado > ((d.pc && d.pc.intervaloMin) || 5) * 3 * 60000;
   }
 
-  /* ---------- desenho ---------- */
+  /* ---------- topo ---------- */
+  function saudacao() {
+    var h = local(agoraMs()).getHours();
+    return h >= 5 && h < 12 ? 'Bom dia' : (h >= 12 && h < 18 ? 'Boa tarde' : 'Boa noite');
+  }
+  function estadoGeral() {
+    var d = m.dados, c = contar();
+    if (!d) { return { cor: 'off', c: c }; }
+    if (dadosVelhos()) { return { cor: 'erro', velho: true, c: c }; }
+    return { cor: c.erro ? 'erro' : (c.alerta ? 'alerta' : 'ok'), c: c };
+  }
   function renderHero() {
-    var d = m.dados, agora = agoraMs(), gerado = d ? quando(d.gerado) : null, c = contar();
-    var velho = dadosVelhos();
-    var cor, sim, tit, sub;
-    if (!d) { cor = 'off'; sim = '?'; tit = m.chave ? 'Esperando os dados do PC' : 'Monitor sem chave'; }
-    else if (velho) { cor = 'erro'; sim = '!'; tit = (m.rede === 'offline' ? 'iPad sem internet ' : 'O PC parou de enviar ') + idadeTxt(agora - gerado); }
+    var d = m.dados, agora = agoraMs(), gerado = d ? quando(d.gerado) : null, e = estadoGeral(), c = e.c;
+    var sim, tit, sub;
+    if (!d) { sim = '?'; tit = m.chave ? 'Esperando os dados do PC' : 'Monitor sem chave'; }
+    else if (e.velho) { sim = '!'; tit = (m.rede === 'offline' ? 'iPad sem internet ' : 'O PC parou de enviar ') + idadeTxt(agora - gerado); }
     else if (c.erro) {
-      cor = 'erro'; sim = '!';
-      tit = c.erro + ' ' + U.plural(c.erro, 'problema', 'problemas') + (c.alerta ? ' \u00b7 ' + c.alerta + ' ' + U.plural(c.alerta, 'alerta', 'alertas') : '');
-    } else if (c.alerta) { cor = 'alerta'; sim = '!'; tit = c.alerta + ' ' + U.plural(c.alerta, 'ponto de aten\u00e7\u00e3o', 'pontos de aten\u00e7\u00e3o'); }
-    else { cor = 'ok'; sim = '\u2713'; tit = 'Tudo certo'; }
+      // um problema s\u00f3 (ou v\u00e1rios com a mesma causa): o topo j\u00e1 diz qual \u00e9
+      var probs = problemasAtuais();
+      sim = '!';
+      if (probs.length === 1) { tit = probs[0].nome + (probs[0].valor ? ' \u00b7 ' + probs[0].valor : ''); }
+      else { tit = c.erro + ' ' + U.plural(c.erro, 'problema', 'problemas') + (c.alerta ? ' \u00b7 ' + c.alerta + ' ' + U.plural(c.alerta, 'alerta', 'alertas') : ''); }
+    } else if (c.alerta) { sim = '!'; tit = c.alerta + ' ' + U.plural(c.alerta, 'ponto de aten\u00e7\u00e3o', 'pontos de aten\u00e7\u00e3o'); }
+    else { sim = '\u2713'; tit = d.nome ? saudacao() + ', ' + d.nome + ' \u00b7 tudo certo' : 'Tudo certo'; }
     var sem = U.$('mSem');
-    sem.style.background = COR[cor];
-    sem.style.boxShadow = cor === 'off' ? 'none' : '0 0 22px ' + COR[cor];
+    sem.style.background = COR[e.cor];
+    sem.style.boxShadow = e.cor === 'off' ? 'none' : '0 0 22px ' + COR[e.cor];
     U.txt('mSem', sim);
     U.txt('mTit', tit);
     if (d && gerado !== null) {
@@ -199,37 +258,139 @@
     U.txt('mSub', sub);
     var r = REDE[m.rede] || REDE.erro;
     U.html('mRede', '<span class="pill ' + r[0] + '">' + r[1] + '</span>');
-    U.classe(U.$('pg-monitor'), 'velho', velho);
+    U.classe(U.$('pg-monitor'), 'velho', !!e.velho);
     var dot = U.$('tabMonDot');
-    if (dot) { dot.style.background = COR[cor]; }
+    if (dot) { dot.style.background = COR[e.cor]; }
+    U.txt('mAtualizar', m.novaVersao ? 'Nova vers\u00e3o' : 'Atualizar');
+    U.classe(U.$('mAtualizar'), 'pri', m.novaVersao);
   }
-  function renderGrupo(g, max) {
-    var agora = agoraMs(), itens = itensDo(g.id).slice(0), i;
-    for (i = 0; i < itens.length; i++) { itens[i]._o = i; }
-    itens.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
-    var nErro = 0, nAlerta = 0, nAtivos = 0;
+
+  /* ---------- cart\u00f5es ---------- */
+  function pillDe(itens) {
+    var nErro = 0, nAlerta = 0, nAtivos = 0, i;
     for (i = 0; i < itens.length; i++) {
       if (itens[i].estado === 'erro') { nErro++; } else if (itens[i].estado === 'alerta') { nAlerta++; }
       if (itens[i].estado !== 'off') { nAtivos++; }
     }
-    var pill = nErro ? ['vermelho', nErro + ' ' + U.plural(nErro, 'PROBLEMA', 'PROBLEMAS')] :
+    return nErro ? ['vermelho', nErro + ' ' + U.plural(nErro, 'PROBLEMA', 'PROBLEMAS')] :
       (nAlerta ? ['ambar', nAlerta + ' ' + U.plural(nAlerta, 'ALERTA', 'ALERTAS')] :
       (nAtivos ? ['verde', 'OK'] : ['cinza', itens.length ? 'EM BREVE' : '\u2014']));
-    var s = '<div class="mgt">' + U.esc(g.nome) + '</div><div class="mgr"><span class="pill pq ' + pill[0] + '">' + pill[1] + '</span></div><div class="mlista">';
+  }
+  function cabeca(titulo, pill) {
+    return '<div class="mgt">' + U.esc(titulo) + '</div><div class="mgr"><span class="pill pq ' + pill[0] + '">' + pill[1] + '</span></div>';
+  }
+  function ordenar(itens) {
+    var l = itens.slice(0), i;
+    for (i = 0; i < l.length; i++) { l[i]._o = i; }
+    l.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
+    return l;
+  }
+  function linhaItem(it, primeira, agora, extra) {
+    var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
+    return '<div class="mi ' + est + (primeira ? ' prim' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+      '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
+      '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+  }
+  /* cart\u00e3o comum: linhas altas (nome, valor, detalhe) ou compactas (nome e valor) */
+  function renderGrupo(g, p, compacto) {
+    var agora = agoraMs(), itens = ordenar(itensDo(g.id)), i, alt = compacto ? 36 : 50;
+    var max = Math.max(1, Math.floor((p.h - (compacto ? 64 : 66)) / alt));
+    var s = cabeca(g.nome, pillDe(itens)) + '<div class="mlista">';
     if (!itens.length) { s += '<div class="mvazio">' + (m.dados ? 'Nada para mostrar aqui.' : 'Sem dados ainda.') + '</div>'; }
     for (i = 0; i < itens.length && i < max; i++) {
-      var it = itens[i], est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
-      s += '<div class="mi ' + est + (i === 0 ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
-        '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
-        '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+      if (!compacto) { s += linhaItem(itens[i], i === 0, agora); continue; }
+      var it = itens[i], est = COR[it.estado] ? it.estado : 'info';
+      s += '<div class="mc ' + est + (i === 0 ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+        '<div class="mcn">' + U.esc(it.nome || '') + '</div><div class="mcv">' + U.esc(it.valor || '') + '</div></div>';
     }
     s += '</div>';
     if (itens.length > max) {
       var resto = itens.length - max;
       s += '<div class="mmais">+ ' + resto + ' ' + U.plural(resto, 'outro item', 'outros itens') + ' \u00b7 toque para ver todos</div>';
-    }
+    } else if (compacto && itens.length) { s += '<div class="mmais">toque para ver os detalhes</div>'; }
     U.html('mG-' + g.id, s);
   }
+
+  /* ---------- painel de sa\u00fade dos modelos ---------- */
+  function statusModelo(mo, agora) {
+    var ini = quando(mo.ini), fim = quando(mo.fim), prev = quando(mo.prev);
+    if (mo.sit === 'ok') { return { txt: fim !== null ? quandoTxt(fim) : (mo.txt || ''), cls: '' }; }
+    if (mo.sit === 'rodando') {
+      if (prev !== null && agora > prev + 60000) { return { txt: 'terminando\u2026', cls: 'azul' }; }
+      return { txt: ini !== null && mo.medS >= 300 ? 'atualizando ' + durCurta(agora - ini) : 'atualizando', cls: 'azul' };
+    }
+    if (mo.sit === 'lento' || mo.sit === 'travado') { return { txt: (mo.sit === 'lento' ? 'lento \u00b7 ' : 'travado \u00b7 ') + (ini !== null ? durCurta(agora - ini) : ''), cls: mo.estado }; }
+    if (mo.sit === 'atrasado') { return { txt: fim !== null ? 'parado h\u00e1 ' + durCurta(agora - fim) : (mo.txt || ''), cls: mo.estado }; }
+    return { txt: mo.txt || '', cls: mo.estado === 'off' ? 'off' : mo.estado };
+  }
+  var COR_BARRA = { C: '#2f9e68', F: '#ff7a7a', X: '#f59e0b', U: '#7fc4ff', D: '#4b6284' };
+  /* barrinhas das \u00faltimas atualiza\u00e7\u00f5es: a mais nova \u00e0 direita; altura = tempo que levou; vermelho = falhou */
+  function barras(h, quantas, larg, vao, altMax) {
+    var l = (h || []).slice(0, quantas), max = 1, i, s = '';
+    for (i = 0; i < l.length; i++) { if (l[i][2] > max) { max = l[i][2]; } }
+    for (i = 0; i < l.length; i++) {
+      var e = l[i], rodando = e[0] === 'U';
+      var alt = rodando ? altMax : Math.max(3, Math.round(altMax * e[2] / max));
+      var x = (quantas - 1 - i) * (larg + vao);
+      s += '<i' + (rodando ? ' class="rod"' : '') + ' style="left:' + x + 'px;height:' + alt + 'px;width:' + larg + 'px;background:' + (COR_BARRA[e[0]] || '#4b6284') + '"></i>';
+    }
+    return s;
+  }
+  function pastaUnica(mods) {
+    var p = mods.length ? (mods[0].pasta || '') : '', i;
+    for (i = 1; i < mods.length; i++) { if ((mods[i].pasta || '') !== p) { return ''; } }
+    return p;
+  }
+  function ordenarModelos(mods) {
+    var l = mods.slice(0), i;
+    for (i = 0; i < l.length; i++) { l[i]._o = i; }
+    l.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
+    return l;
+  }
+  function renderSaude(g, p) {
+    var agora = agoraMs(), grupo = grupoDados(g.id) || {}, mods = modelosDo(g.id), r = grupo.resumo || null, i;
+    var pasta = pastaUnica(mods), itens = itensDo(g.id), pill = pillDe(itens);
+    var max = Math.floor((p.h - 64 - 24) / 27), lista = mods.length > max ? ordenarModelos(mods).slice(0, max - 1) : mods;
+    var s = cabeca(g.nome + (pasta ? ' \u00b7 ' + pasta.toUpperCase() : ''), pill);
+    var res = '', dia = '';
+    if (r) {
+      res = r.ok + ' de ' + r.total + ' no ritmo';
+      if (r.rod) { res += ' \u00b7 ' + r.rod + ' atualizando agora'; }
+      if (r.parados) { res += ' \u00b7 ' + r.parados + ' ' + U.plural(r.parados, 'parado', 'parados'); }
+      if (r.h24 && (r.h24[0] || r.h24[1])) { dia = '24h: ' + r.h24[0] + ' certas \u00b7 ' + r.h24[1] + ' ' + U.plural(r.h24[1], 'falha', 'falhas'); }
+    }
+    s += '<div class="mres">' + U.esc(res) + '</div><div class="mres24' + (r && r.h24 && r.h24[1] ? ' ruim' : '') + '">' + U.esc(dia) + '</div><div class="mgrade">';
+    for (i = 0; i < lista.length; i++) {
+      var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora);
+      s += '<div class="mm ' + est + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
+        '<div class="mmb">' + barras(mo.h, 12, 5, 2, 17) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
+    }
+    s += '</div>';
+    s += '<div class="mmais">' + (mods.length > lista.length ? '+ ' + (mods.length - lista.length) + ' outros modelos \u00b7 ' : '') + 'toque para abrir a ficha de cada modelo</div>';
+    U.html('mG-' + g.id, s);
+  }
+
+  /* ---------- acontecimentos ---------- */
+  function renderEventos(p) {
+    var el = U.$('mEv'), evs = eventosDoPC(), i;
+    if (!el) { return; }
+    if (!p) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
+    var max = Math.max(1, Math.floor((p.h - 44 - 22) / 40)), dia = agoraMs() - 86400000, n24 = 0;
+    for (i = 0; i < evs.length; i++) { var t0 = quando(evs[i].t); if (t0 !== null && t0 >= dia && evs[i].n !== 'info') { n24++; } }
+    var s = '<div class="mgt">ACONTECIMENTOS</div><div class="mgr mgr2">' + (n24 ? n24 + ' nas \u00faltimas 24h' : 'nada nas \u00faltimas 24h') + '</div><div class="mlista">';
+    if (!evs.length) { s += '<div class="mvazio">Nada por enquanto. O Monitor anota aqui quando algo falha, para ou volta ao normal.</div>'; }
+    for (i = 0; i < evs.length && i < max; i++) {
+      var e = evs[i], est = COR[e.n] ? e.n : 'info', t = quando(e.t);
+      s += '<div class="me' + (i === 0 ? ' prim' : '') + '"><div class="meh">' + (t !== null ? quandoTxt(t) : '') + '</div><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+        '<div class="mex">' + U.esc(e.x || '') + '</div><div class="med">' + U.esc(e.d || '') + '</div></div>';
+    }
+    s += '</div>';
+    if (evs.length > max) { s += '<div class="mmais">+ ' + (evs.length - max) + ' mais antigos \u00b7 toque para ver todos</div>'; }
+    U.html('mEv', s);
+  }
+
   function renderGrupos() {
     var vis = gruposVisiveis(), pos = posicoes(vis);
     for (var i = 0; i < GRUPOS.length; i++) {
@@ -237,45 +398,60 @@
       if (!el) { continue; }
       if (!p) { el.style.display = 'none'; continue; }
       el.style.display = 'block';
-      el.style.left = p.x + 'px';
-      el.style.top = p.y + 'px';
-      el.style.width = p.w + 'px';
-      el.style.height = p.h + 'px';
-      renderGrupo(g, Math.max(1, Math.floor((p.h - 66) / 50)));
+      el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; el.style.width = p.w + 'px'; el.style.height = p.h + 'px';
+      if (g.id === 'bi' && p.h >= 500 && modelosDo('bi').length) { renderSaude(g, p); }
+      else { renderGrupo(g, p, p.h > 270 && p.h < 400); }
     }
+    renderEventos(pos.ev || null);
   }
 
-  /* ---------- lista completa de um grupo (toque no cart\u00e3o) ---------- */
-  function itensOrdenados(id) {
-    var itens = itensDo(id).slice(0), i, extra = [];
+  /* ---------- lista completa (toque num cart\u00e3o) ---------- */
+  function listaDetalhe(id) {
+    var agora = agoraMs(), l = [], i, itens;
+    if (id === 'eventos') {
+      var evs = eventosDoPC();
+      for (i = 0; i < evs.length; i++) { l.push({ nome: evs[i].x, valor: quando(evs[i].t) !== null ? quandoTxt(quando(evs[i].t)) : '', detalhe: evs[i].d, estado: COR[evs[i].n] ? evs[i].n : 'info', quando: evs[i].t }); }
+      return l;
+    }
+    var mods = id === 'bi' ? ordenarModelos(modelosDo('bi')) : [];
+    for (i = 0; i < mods.length; i++) {
+      var mo = mods[i], st = statusModelo(mo, agora), det;
+      if (mo.estado === 'erro' || mo.estado === 'alerta' || mo.estado === 'off') { det = mo.det || ''; }
+      else { det = (mo.rit || '') + (mo.medS ? ' \u00b7 leva uns ' + durLonga(mo.medS) : '') + (mo.n ? ' \u00b7 ' + mo.ok + ' de ' + mo.n + ' deram certo' : ''); }
+      l.push({ nome: mo.nome, valor: st.txt, detalhe: det, estado: mo.estado, quando: mo.fim, modelo: mo });
+    }
+    itens = ordenar(itensDo(id));
     for (i = 0; i < itens.length; i++) {
-      itens[i]._o = i;
-      // o resumo "modelos parados" traz a lista dos parados: entra como linhas pr\u00f3prias no detalhe
-      if (itens[i].parados && itens[i].parados.length) {
-        for (var j = 0; j < itens[i].parados.length; j++) {
-          var p = itens[i].parados[j];
-          extra.push({ nome: p.nome, estado: 'off', valor: 'parado', detalhe: (p.area || '') + ' \u00b7 ' + (p.motivo || ''), quando: p.desde, _o: 1000 + j });
+      var it = itens[i];
+      if (mods.length && (it.m || it.r)) { continue; } // com a lista de modelos, os resumos e os itens de modelo n\u00e3o se repetem
+      l.push(it);
+      // vers\u00f5es antigas do coletor mandavam os parados dentro de um resumo
+      if (!mods.length && it.parados && it.parados.length) {
+        for (var j = 0; j < it.parados.length; j++) {
+          var pa = it.parados[j];
+          l.push({ nome: pa.nome, estado: 'off', valor: 'parado', detalhe: (pa.area || '') + ' \u00b7 ' + (pa.motivo || ''), quando: pa.desde });
         }
       }
     }
-    itens = itens.concat(extra);
-    itens.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
-    return itens;
+    return l;
+  }
+  function tituloDetalhe(id) {
+    if (id === 'eventos') { return 'ACONTECIMENTOS'; }
+    for (var i = 0; i < GRUPOS.length; i++) { if (GRUPOS[i].id === id) { return GRUPOS[i].nome; } }
+    return '';
   }
   function renderDetalhe() {
     if (!m.det) { return; }
-    var g = null, i;
-    for (i = 0; i < GRUPOS.length; i++) { if (GRUPOS[i].id === m.det) { g = GRUPOS[i]; } }
-    var itens = itensOrdenados(m.det), total = itens.length, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+    var i, itens = listaDetalhe(m.det), total = itens.length, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+    m.lista = itens;
     if (m.pag > paginas - 1) { m.pag = paginas - 1; }
     if (m.pag < 0) { m.pag = 0; }
-    U.txt('mDetTit', (g ? g.nome : '') + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens'));
+    var temFicha = false;
+    for (i = 0; i < total; i++) { if (itens[i].modelo) { temFicha = true; } }
+    U.txt('mDetTit', tituloDetalhe(m.det) + ' \u00b7 ' + total + ' ' + U.plural(total, 'item', 'itens') + (temFicha ? ' \u00b7 toque num modelo para abrir a ficha' : ''));
     var agora = agoraMs(), s = '';
     for (i = m.pag * POR_PAGINA; i < total && i < (m.pag + 1) * POR_PAGINA; i++) {
-      var it = itens[i], est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
-      s += '<div class="mi ' + est + (i === m.pag * POR_PAGINA ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
-        '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
-        '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+      s += linhaItem(itens[i], i === m.pag * POR_PAGINA, agora, itens[i].modelo ? ' data-act="mon-modelo" data-arg="' + i + '"' : '');
     }
     if (!total) { s = '<div class="mvazio">Nada para mostrar aqui.</div>'; }
     U.html('mDetLista', s);
@@ -288,15 +464,97 @@
     U.classe(U.$('mDet'), 'esc', false);
     renderDetalhe();
   }
-  function fecharDetalhe() { m.det = null; U.classe(U.$('mDet'), 'esc', true); }
+  function fecharFicha() { m.ficha = -1; U.classe(U.$('mFicha'), 'esc', true); }
+  function fecharDetalhe() { m.det = null; U.classe(U.$('mDet'), 'esc', true); fecharFicha(); }
+
+  /* ---------- ficha do modelo ---------- */
+  var NOME_SIT = {
+    ok: ['verde', 'NO RITMO'], rodando: ['ciano', 'ATUALIZANDO'], lento: ['ambar', 'LENTO'], travado: ['vermelho', 'TRAVADO'],
+    falhou: ['vermelho', 'FALHOU'], tentando: ['ambar', 'TENTANDO DE NOVO'], atrasado: ['ambar', 'ATRASADO'], desligada: ['vermelho', 'AGENDA DESLIGADA'],
+    cancelada: ['ambar', 'CANCELADA'], velho: ['ambar', 'SEM ATUALIZAR'], parado: ['cinza', 'PARADO'], nunca: ['cinza', 'NUNCA ATUALIZOU'], semleitura: ['ambar', 'SEM LEITURA']
+  };
+  function bloco(x, rotulo, valor, sub) {
+    return '<div class="mfb" style="left:' + x + 'px"><div class="mfl">' + rotulo + '</div><div class="mfv">' + U.esc(valor) + '</div><div class="mfs">' + U.esc(sub || '') + '</div></div>';
+  }
+  function renderFicha() {
+    if (m.ficha < 0) { return; }
+    var linha = m.lista[m.ficha], mo = linha && linha.modelo, agora = agoraMs(), i;
+    if (!mo) { fecharFicha(); return; }
+    // o modelo pode ter mudado desde que a lista foi montada: pega a vers\u00e3o nova pelo id
+    var mods = modelosDo('bi');
+    for (i = 0; i < mods.length; i++) { if (mods[i].id === mo.id) { mo = mods[i]; } }
+    var sit = NOME_SIT[mo.sit] || ['cinza', String(mo.sit || '').toUpperCase()];
+    if (mo.sit === 'atrasado' && mo.estado === 'erro') { sit = ['vermelho', 'PAROU']; }
+    if (mo.sit === 'falhou' && mo.estado === 'alerta') { sit = ['ambar', 'FALHOU']; }
+    var fim = quando(mo.fim), prox = quando(mo.prox), ini = quando(mo.ini), prev = quando(mo.prev);
+    var s = '<div class="ptit">' + U.esc(mo.nome || '') + '</div><div class="mfp"><span class="pill ' + sit[0] + '">' + sit[1] + '</span></div>';
+    s += '<div class="mfsub">' + U.esc((mo.pasta || '') + (mo.fts ? ' \u00b7 usa ' + mo.fts : '')) + '</div>';
+    // quatro n\u00fameros
+    var ultSub = mo.durS ? 'levou ' + durLonga(mo.durS) : '';
+    if (mo.rod && ini !== null) { ultSub = 'atualizando de novo desde ' + hora(ini) + (prev !== null && prev > agora ? ', termina por volta de ' + hora(prev) : ''); }
+    s += bloco(18, '\u00daLTIMA QUE DEU CERTO', fim !== null ? quandoTxt(fim) : '\u2014', ultSub);
+    s += bloco(266, 'RITMO', mo.rit || '\u2014', prox !== null && prox > agora ? 'pr\u00f3xima por volta de ' + hora(prox) : '');
+    var difTxt = '';
+    if (mo.medS && mo.durS) {
+      var dif = Math.round((mo.durS - mo.medS) / mo.medS * 100);
+      difTxt = 'a \u00faltima levou ' + durLonga(mo.durS) + (Math.abs(dif) >= 10 ? ' (' + (dif > 0 ? '+' : '') + dif + '%)' : '');
+    }
+    s += bloco(514, 'DURA\u00c7\u00c3O NORMAL', mo.medS ? durLonga(mo.medS) : '\u2014', difTxt);
+    var conf = mo.n ? mo.ok + ' de ' + mo.n : '\u2014', confSub = '';
+    if (mo.h24 && (mo.h24[0] || mo.h24[1])) { confSub = '24h: ' + mo.h24[0] + ' certas \u00b7 ' + mo.h24[1] + ' ' + U.plural(mo.h24[1], 'falha', 'falhas'); }
+    s += bloco(762, 'DERAM CERTO', conf, confSub);
+    // hist\u00f3rico
+    var h = mo.h || [];
+    s += '<div class="mfl" style="left:18px;top:178px">\u00daLTIMAS ' + h.length + ' ATUALIZA\u00c7\u00d5ES \u00b7 a altura \u00e9 o tempo que levou \u00b7 vermelho = falhou</div>';
+    s += '<div class="mfbar">' + barras(h, 20, 40, 7, 84) + '</div>';
+    if (h.length) {
+      s += '<div class="mfcap" style="left:18px">' + quandoTxt(h[h.length - 1][1] * 1000) + '</div><div class="mfcap" style="right:18px;text-align:right">' + quandoTxt(h[0][1] * 1000) + '</div>';
+    }
+    // 24 horas
+    var faixa = mo.faixa || '';
+    if (faixa.length === 24) {
+      s += '<div class="mfl" style="left:18px;top:318px">\u00daLTIMAS 24 HORAS, HORA A HORA \u00b7 verde = tudo certo \u00b7 vermelho = teve falha \u00b7 escuro = sem atualiza\u00e7\u00e3o</div><div class="mffx">';
+      for (i = 0; i < 24; i++) {
+        var ch = faixa.charAt(i);
+        s += '<i style="left:' + (i * 39) + 'px;background:' + (ch === 'o' ? '#2f9e68' : (ch === 'm' ? '#f59e0b' : (ch === 'x' ? '#ff7a7a' : '#0e2238'))) + '"></i>';
+      }
+      s += '</div>';
+    }
+    // o que aconteceu e o que fazer
+    var y = 386;
+    if (mo.estado === 'erro' || mo.estado === 'alerta') {
+      s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE ACONTECEU</div><div class="mft" style="top:' + (y + 16) + 'px">' + U.esc((mo.txt ? mo.txt + ' \u00b7 ' : '') + (mo.det || '')) + '</div>';
+      y += 66;
+      if (mo.dica && mo.dica.length) {
+        s += '<div class="mfl" style="left:18px;top:' + y + 'px">O QUE FAZER</div><div class="mfd" style="top:' + (y + 16) + 'px">';
+        for (i = 0; i < mo.dica.length && i < 3; i++) { s += '<div><b>' + (i + 1) + '.</b> ' + U.esc(mo.dica[i]) + '</div>'; }
+        s += '</div>';
+      }
+    } else if (mo.uf) {
+      var tf = quando(mo.uf.t);
+      s += '<div class="mfl" style="left:18px;top:' + y + 'px">\u00daLTIMA FALHA REGISTRADA</div><div class="mft" style="top:' + (y + 16) + 'px">' + (tf !== null ? quandoTxt(tf) + ' \u00b7 ' : '') + U.esc(mo.uf.frase || '') + '</div>';
+    } else {
+      s += '<div class="mfl" style="left:18px;top:' + y + 'px">SEM FALHA NO HIST\u00d3RICO</div><div class="mft cinza" style="top:' + (y + 16) + 'px">Nenhuma das \u00faltimas ' + (mo.n || 0) + ' atualiza\u00e7\u00f5es falhou.</div>';
+    }
+    U.html('mFichaCorpo', s);
+  }
+  function abrirFicha(i) {
+    m.ficha = parseInt(i, 10);
+    if (isNaN(m.ficha) || !m.lista[m.ficha] || !m.lista[m.ficha].modelo) { m.ficha = -1; return; }
+    U.classe(U.$('mFicha'), 'esc', false);
+    renderFicha();
+  }
+
   function render() {
     if (!U) { return; }
     m.ultimoRender = agoraMs();
-    renderHero();
-    renderGrupos();
-    renderDetalhe();
-    verificarAlarme();
-    renderAlarmeBotao();
+    seguro('topo', renderHero);
+    seguro('cart\u00f5es', renderGrupos);
+    seguro('lista', renderDetalhe);
+    seguro('ficha', renderFicha);
+    seguro('alarme', verificarAlarme);
+    seguro('bot\u00f5es', renderAlarmeBotao);
+    seguro('noite', renderNoite);
   }
 
   /* ---------- som do alarme ----------
@@ -324,6 +582,10 @@
         if (som.ac.resume) { som.ac.resume(); }
       }
     } catch (e2) { som.ac = null; }
+    // a voz tamb\u00e9m precisa de um primeiro uso dentro de um toque
+    if (!som.liberado && voz.ok) {
+      try { var u = new window.SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch (e3) { /* sem voz */ }
+    }
     som.liberado = true;
   }
   function bipe() {
@@ -362,36 +624,73 @@
     // iOS 9: play() n\u00e3o avisa se tocou; at\u00e9 o arquivo confirmar que toca, o Web Audio toca junto
     if (!foi || !som.elOk) { bipe(); }
   }
-  function pararSom() { try { if (som.el) { som.el.pause(); } } catch (e) { /* nada */ } }
+  function pararSom() {
+    try { if (som.el) { som.el.pause(); } } catch (e) { /* nada */ }
+    try { if (voz.ok) { window.speechSynthesis.cancel(); } } catch (e2) { /* nada */ }
+    al.falandoAte = 0;
+  }
+
+  /* ---------- voz: o iPad fala qual foi o problema ---------- */
+  function paraFalar(t) {
+    return String(t || '').toLowerCase().replace(/_/g, ' ').replace(/\s+-\s+/g, ', ').replace(/ \u00b7 /g, '. ').replace(/(\d+)x /g, '$1 vezes ').replace(/\bbi\b/g, 'B I');
+  }
+  function fraseFalada(lista) {
+    var p = lista[0], det = String(p.detalhe || ''), corte = det.indexOf(' \u00b7 ');
+    if (corte >= 0 && p.modelo) { det = det.substr(corte + 3); }
+    var s = 'Aten\u00e7\u00e3o. ' + (lista.length > 1 ? lista.length + ' problemas novos. O primeiro: ' : 'Problema novo: ');
+    s += paraFalar(p.nome) + '. ' + (p.valor ? paraFalar(p.valor) + '. ' : '') + paraFalar(det).substr(0, 140);
+    return s.substr(0, 320);
+  }
+  function falar(texto) {
+    if (!voz.ok || !voz.ligada) { return false; }
+    try {
+      var u = new window.SpeechSynthesisUtterance(texto);
+      u.lang = 'pt-BR';
+      u.rate = 1;
+      u.volume = 1;
+      u.onend = function () { al.falandoAte = 0; };
+      al.falandoAte = agoraMs() + Math.min(25000, 2000 + texto.length * 80);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      return true;
+    } catch (e) { al.falandoAte = 0; return false; }
+  }
 
   /* ---------- alarme: o que \u00e9 problema novo ---------- */
   function lerVistos() {
-    var o = {};
-    try { var a = JSON.parse(ler(LS_VISTOS) || '[]'); for (var i = 0; i < a.length; i++) { o[a[i]] = true; } } catch (e) { o = {}; }
+    var o = {}, t = agoraMs(), a = null, i, k;
+    try { a = JSON.parse(ler(LS_VISTOS) || '{}'); } catch (e) { a = null; }
+    if (a && typeof a.length === 'number') { for (i = 0; i < a.length; i++) { o[a[i]] = [t, 0]; } } // formato da vers\u00e3o 1.3
+    else if (a) { for (k in a) { if (a.hasOwnProperty(k) && a[k] && a[k].length === 2) { o[k] = a[k]; } } }
     return o;
   }
-  function salvarVistos() {
-    var a = [];
-    for (var k in al.vistos) { if (al.vistos.hasOwnProperty(k)) { a.push(k); } }
-    gravar(LS_VISTOS, JSON.stringify(a.slice(-200)));
-  }
-  /* cada item vermelho \u00e9 um problema; a chave inclui a hora da falha, ent\u00e3o uma falha nova do mesmo modelo toca de novo */
+  function salvarVistos() { gravar(LS_VISTOS, JSON.stringify(al.vistos)); }
+  /* Cada item vermelho \u00e9 um problema. A chave vem do PC e identifica o incidente: uma falha que se repete
+     a cada meia hora \u00e9 o mesmo incidente e toca uma vez; itens com a mesma causa (ex.: gateway fora) viram um s\u00f3. */
   function problemasAtuais() {
-    var lista = [], d = m.dados, vis = gruposVisiveis(), i, j;
+    var lista = [], porChave = {}, d = m.dados, vis = gruposVisiveis(), i, j, k;
     if (!d) { return lista; }
     for (i = 0; i < vis.length; i++) {
       var itens = itensDo(vis[i].id);
       for (j = 0; j < itens.length; j++) {
         var it = itens[j];
-        if (it && it.estado === 'erro') {
-          lista.push({ chave: vis[i].id + '|' + (it.nome || '') + '|' + (it.quando || ''), grupo: vis[i].nome, nome: it.nome || '', valor: it.valor || '', detalhe: it.detalhe || '' });
-        }
+        if (!it || it.estado !== 'erro') { continue; }
+        var chave = it.raiz || it.chave || (vis[i].id + '|' + (it.nome || '') + '|' + (it.quando || ''));
+        var p = { chave: chave, inc: it.inc && !it.raiz ? 1 : 0, grupo: vis[i].nome, nome: it.nome || '', valor: it.valor || '', detalhe: it.detalhe || '', quando: it.quando || '', modelo: !!it.m, junto: 0 };
+        var ant = porChave[chave];
+        if (!ant) { porChave[chave] = p; lista.push(p); }
+        else if (ant.modelo && !p.modelo) {
+          // a causa (gateway, banco) vale mais que o modelo que falhou por causa dela
+          p.junto = ant.junto + 1;
+          porChave[chave] = p;
+          for (k = 0; k < lista.length; k++) { if (lista[k] === ant) { lista[k] = p; } }
+        } else { ant.junto++; }
       }
     }
     if (dadosVelhos()) {
       var g = quando(d.gerado), semNet = m.rede === 'offline';
       lista.push({
-        chave: 'parado|' + d.gerado, grupo: 'MONITOR',
+        chave: 'parado|' + d.gerado, inc: 0, grupo: 'MONITOR', junto: 0, quando: d.gerado, modelo: false,
         nome: semNet ? 'O iPad est\u00e1 sem internet' : 'O PC parou de enviar', valor: idadeTxt(agoraMs() - g),
         detalhe: 'Os dados est\u00e3o parados desde ' + hora(g) + (semNet ? '. Confira o Wi-Fi do iPad.' : '. Confira se o PC est\u00e1 ligado e com a Central rodando.')
       });
@@ -402,23 +701,34 @@
     for (var i = 0; i < al.lista.length; i++) { if (al.lista[i].chave === chave) { return true; } }
     return false;
   }
+  function ehNoite() {
+    var h = local(agoraMs()).getHours();
+    if (noite.ini === noite.fim) { return false; }
+    return noite.ini < noite.fim ? (h >= noite.ini && h < noite.fim) : (h >= noite.ini || h < noite.fim);
+  }
   function verificarAlarme() {
     // s\u00f3 depois da primeira busca desta abertura: o \u00faltimo status salvo pode estar velho
     if (!m.dados || m.tentativas === 0 || m.buscando) { return; }
-    var atuais = problemasAtuais(), mapa = {}, novos = [], i, k, mudou = false;
-    for (i = 0; i < atuais.length; i++) { mapa[atuais[i].chave] = true; }
+    var atuais = problemasAtuais(), mapa = {}, novos = [], i, k, mudou = false, t = agoraMs();
+    for (i = 0; i < atuais.length; i++) { mapa[atuais[i].chave] = atuais[i]; }
     if (!dadosVelhos()) {
-      // o que j\u00e1 foi resolvido sai da mem\u00f3ria: se voltar a acontecer, toca de novo
-      for (k in al.vistos) { if (al.vistos.hasOwnProperty(k) && !mapa[k]) { delete al.vistos[k]; mudou = true; } }
+      for (k in al.vistos) {
+        if (!al.vistos.hasOwnProperty(k) || mapa[k]) { continue; }
+        // problema sem data de incidente: quando some, sai da mem\u00f3ria (se voltar, toca de novo).
+        // incidente com data: fica 7 dias, para a mesma falha n\u00e3o tocar de novo a cada tentativa
+        if (!al.vistos[k][1] || t - al.vistos[k][0] > 7 * 86400000) { delete al.vistos[k]; mudou = true; }
+      }
     }
     if (al.ligado && al.base) {
       // acabou de ligar: o que j\u00e1 est\u00e1 vermelho na tela n\u00e3o toca, vale o que aparecer daqui em diante
-      for (i = 0; i < atuais.length; i++) { al.vistos[atuais[i].chave] = true; }
+      for (i = 0; i < atuais.length; i++) { al.vistos[atuais[i].chave] = [t, atuais[i].inc]; }
       al.base = false;
       mudou = true;
     }
+    for (i = 0; i < atuais.length; i++) { if (al.vistos[atuais[i].chave]) { al.vistos[atuais[i].chave][0] = t; } }
     if (mudou) { salvarVistos(); }
     if (!al.ligado) { return; }
+    if (noite.som && ehNoite()) { return; } // sil\u00eancio da noite: o problema fica para tocar quando o hor\u00e1rio acabar
     for (i = 0; i < atuais.length; i++) { if (!al.vistos[atuais[i].chave] && !naLista(atuais[i].chave)) { novos.push(atuais[i]); } }
     if (novos.length) { dispararAlarme(novos); }
   }
@@ -427,24 +737,31 @@
     al.tocando = true;
     al.desde = agoraMs();
     al.ultimoSom = al.desde;
+    al.ultimaFala = al.desde;
+    m.acordadoAte = al.desde + 600000;
     mostrarAlerta();
+    renderNoite();
     tocar();
+    var frase = fraseFalada(al.lista);
+    al.falandoAte = voz.ok && voz.ligada ? al.desde + 12000 : 0; // segura os bipes enquanto a voz n\u00e3o come\u00e7a
+    setTimeout(function () { if (al.tocando) { falar(frase); } }, 1500);
   }
   function mostrarAlerta() {
     var n = al.lista.length, s = '', i;
     U.txt('mAlTit', n === 1 ? 'PROBLEMA NOVO' : n + ' PROBLEMAS NOVOS');
-    for (i = 0; i < n && i < 5; i++) {
-      var p = al.lista[i];
-      s += '<div class="mali"><div class="malg">' + U.esc(p.grupo) + '</div><div class="maln">' + U.esc(p.nome) + (p.valor ? ' \u00b7 ' + U.esc(p.valor) : '') + '</div>' +
-        '<div class="mald">' + U.esc(p.detalhe) + '</div></div>';
+    for (i = 0; i < n && i < 4; i++) {
+      var p = al.lista[i], t = quando(p.quando);
+      s += '<div class="mali"><div class="malg">' + U.esc(p.grupo) + (t !== null ? ' \u00b7 DESDE ' + quandoTxt(t).toUpperCase() : '') + (p.junto ? ' \u00b7 E MAIS ' + p.junto + ' ' + U.plural(p.junto, 'ITEM AFETADO', 'ITENS AFETADOS') : '') + '</div>' +
+        '<div class="maln">' + U.esc(p.nome) + (p.valor ? ' \u00b7 ' + U.esc(p.valor) : '') + '</div><div class="mald">' + U.esc(p.detalhe) + '</div></div>';
     }
-    if (n > 5) { s += '<div class="mald">+ ' + (n - 5) + ' ' + U.plural(n - 5, 'outro', 'outros') + ' no Monitor</div>'; }
+    if (n > 4) { s += '<div class="mald">+ ' + (n - 4) + ' ' + U.plural(n - 4, 'outro', 'outros') + ' no Monitor</div>'; }
     U.html('mAlLista', s);
     U.txt('mAlQuando', 'Detectado \u00e0s ' + hora(al.desde) + ' \u00b7 o alarme toca at\u00e9 voc\u00ea tocar em Ciente');
     U.classe(U.$('mAlerta'), 'esc', false);
   }
   function ciente() {
-    for (var i = 0; i < al.lista.length; i++) { al.vistos[al.lista[i].chave] = true; }
+    var t = agoraMs();
+    for (var i = 0; i < al.lista.length; i++) { al.vistos[al.lista[i].chave] = [t, al.lista[i].inc]; }
     salvarVistos();
     al.lista = [];
     al.tocando = false;
@@ -452,16 +769,30 @@
     U.classe(U.$('mAlerta'), 'esc', true);
   }
 
-  /* ---------- alarme: bot\u00e3o e painel ---------- */
+  /* ---------- alarme, voz e noite: bot\u00e3o e painel ---------- */
   function renderAlarmeBotao() {
     var dot = U.$('mAlDot');
     if (dot) { dot.style.background = !al.ligado ? COR.off : (som.liberado ? COR.ok : COR.alerta); }
-    U.txt('mAlDica', al.ligado && !som.liberado ? 'alarme ligado \u00b7 toque na tela para armar o som' : '');
+    var dica = '';
+    if (m.erroInterno) { dica = 'erro no app (' + m.erroInterno + ')'; }
+    else if (al.ligado && !som.liberado) { dica = 'alarme ligado \u00b7 toque na tela para armar o som'; }
+    else if (m.novaVersao) { dica = 'vers\u00e3o nova pronta \u00b7 toque em Nova vers\u00e3o para atualizar'; }
+    U.txt('mAlDica', dica);
   }
+  function hh(h) { return U.pad2(h) + ':00'; }
   function renderAlarmeCfg() {
     U.txt('mAlLigar', al.ligado ? 'Desligar alarme' : 'Ligar alarme');
     U.classe(U.$('mAlLigar'), 'pri', !al.ligado);
     U.txt('mAlEstado', al.ligado ? (som.liberado ? 'Alarme LIGADO \u00b7 som armado' : 'Alarme LIGADO \u00b7 toque na tela para armar o som') : 'Alarme DESLIGADO');
+    U.txt('mAlVoz', !voz.ok ? 'Voz: este iPad n\u00e3o tem' : (voz.ligada ? 'Voz: ligada' : 'Voz: desligada'));
+    U.classe(U.$('mAlVoz'), 'off', !voz.ok);
+    U.classe(U.$('mAlVoz'), 'pri', voz.ok && voz.ligada);
+    U.txt('mNoiteIni', hh(noite.ini));
+    U.txt('mNoiteFim', hh(noite.fim));
+    U.txt('mNoiteTela', noite.tela ? 'Tela escura: ligada' : 'Tela escura: desligada');
+    U.classe(U.$('mNoiteTela'), 'pri', noite.tela);
+    U.txt('mNoiteSom', noite.som ? 'Sem som \u00e0 noite: ligado' : 'Sem som \u00e0 noite: desligado');
+    U.classe(U.$('mNoiteSom'), 'pri', noite.som);
   }
   function mostrarAlarmeCfg(on) {
     if (on) { U.txt('mAlMsg', ''); renderAlarmeCfg(); }
@@ -488,9 +819,62 @@
   function testarSom() {
     prepararSom(true);
     tocar();
-    U.txt('mAlMsg', 'Tocou? Se n\u00e3o ouviu, aumente o volume do iPad.');
+    if (voz.ok && voz.ligada) { setTimeout(function () { falar('Teste do alarme. \u00c9 assim que eu aviso quando aparecer um problema.'); }, 1500); }
+    U.txt('mAlMsg', voz.ok && voz.ligada ? 'Tocou e falou? Se n\u00e3o ouviu, aumente o volume do iPad.' : 'Tocou? Se n\u00e3o ouviu, aumente o volume do iPad.');
     renderAlarmeCfg();
     renderAlarmeBotao();
+  }
+  function alternarVoz() {
+    if (!voz.ok) { U.txt('mAlMsg', 'O Safari deste iPad n\u00e3o oferece voz para o app. O alarme toca normalmente.'); return; }
+    voz.ligada = !voz.ligada;
+    gravar(LS_VOZ, voz.ligada ? '1' : '0');
+    prepararSom(true);
+    if (voz.ligada) { falar('Voz ligada.'); }
+    U.txt('mAlMsg', voz.ligada ? 'Quando o alarme tocar, o iPad fala qual foi o problema.' : 'O alarme toca sem falar.');
+    renderAlarmeCfg();
+  }
+  function salvarNoite() { gravar(LS_NOITE, JSON.stringify(noite)); }
+  function mudarNoite(arg) {
+    if (arg === 'ini') { noite.ini = (noite.ini + 1) % 24; }
+    else if (arg === 'fim') { noite.fim = (noite.fim + 1) % 24; }
+    else if (arg === 'tela') { noite.tela = !noite.tela; m.acordadoAte = agoraMs() + 120000; }
+    else if (arg === 'som') { noite.som = !noite.som; }
+    salvarNoite();
+    U.txt('mAlMsg', arg === 'som' && noite.som ? 'Das ' + hh(noite.ini) + ' \u00e0s ' + hh(noite.fim) + ' o alarme espera. Se o problema continuar, toca quando o hor\u00e1rio acabar.' :
+      (arg === 'tela' && noite.tela ? 'Das ' + hh(noite.ini) + ' \u00e0s ' + hh(noite.fim) + ' a tela fica escura. Ela acende ao toque e quando o alarme dispara.' : ''));
+    renderAlarmeCfg();
+    renderNoite();
+  }
+  /* tela escura da noite: cobre tudo, mostra s\u00f3 a hora e uma linha de estado; acende ao toque ou com o alarme */
+  function renderNoite() {
+    var el = U.$('mNoite');
+    if (!el) { return; }
+    var t = agoraMs(), on = noite.tela && ehNoite() && !al.tocando && t > m.acordadoAte && !!m.chave;
+    U.classe(el, 'esc', !on);
+    U.classe(document.body, 'noite', on);
+    m.noiteOn = on;
+    if (!on) { return; }
+    var e = estadoGeral(), txt;
+    if (!m.dados) { txt = 'sem dados'; }
+    else if (e.velho) { txt = 'sem receber dados do PC'; }
+    else if (e.c.erro) { txt = e.c.erro + ' ' + U.plural(e.c.erro, 'problema', 'problemas'); }
+    else if (e.c.alerta) { txt = e.c.alerta + ' ' + U.plural(e.c.alerta, 'ponto de aten\u00e7\u00e3o', 'pontos de aten\u00e7\u00e3o'); }
+    else { txt = 'tudo certo'; }
+    U.txt('mNoiteHora', hora(t));
+    U.txt('mNoiteTxt', txt + (al.ligado ? (noite.som ? ' \u00b7 alarme em sil\u00eancio at\u00e9 ' + hh(noite.fim) : ' \u00b7 alarme ligado') : ' \u00b7 alarme desligado'));
+    U.$('mNoiteDot').style.background = COR[e.cor];
+  }
+
+  /* ---------- vers\u00e3o nova do app ----------
+     Recarregar a p\u00e1gina desarma o som (o iOS pede um toque de novo). Por isso, com o alarme armado,
+     a vers\u00e3o nova espera um toque no bot\u00e3o; sem alarme, entra sozinha. */
+  function versaoPronta() {
+    try { window.applicationCache.swapCache(); } catch (e) { /* nada */ }
+    if (al.ligado && som.liberado) { m.novaVersao = true; render(); return; }
+    window.location.reload();
+  }
+  function procurarVersao() {
+    try { if (window.applicationCache && navigator.onLine !== false) { window.applicationCache.update(); } } catch (e) { /* ainda sem cache */ }
   }
 
   /* ---------- chave ---------- */
@@ -519,13 +903,27 @@
   }
 
   /* ---------- rel\u00f3gio ---------- */
+  function falarDepois(frase) {
+    setTimeout(function () { if (al.tocando) { falar(frase); } }, 1500);
+  }
   function tick() {
     var t = agoraMs();
     if (!m.buscando && t >= m.proxima && document.hidden !== true) { buscar(false); }
     if (t - m.ultimoRender > 30000) { render(); }
-    if (al.tocando && document.hidden !== true) {
+    if (t >= m.proximaVersao) { m.proximaVersao = t + 1800000; procurarVersao(); }
+    if (m.noiteOn) { U.txt('mNoiteHora', hora(t)); }
+    else if (noite.tela && t > m.acordadoAte && t - m.ultimoRender > 5000 && ehNoite() && !al.tocando) { seguro('noite', renderNoite); } // apaga logo que os 2 minutos passam
+    if (al.tocando && document.hidden !== true && t >= al.falandoAte) {
       var forte = t - al.desde < ALARME_FORTE;
-      if (t - al.ultimoSom >= (forte ? REPETE_FORTE : REPETE_FRACO)) { al.ultimoSom = t; tocar(); }
+      if (t - al.ultimoSom >= (forte ? REPETE_FORTE : REPETE_FRACO)) {
+        al.ultimoSom = t;
+        tocar();
+        if (voz.ok && voz.ligada && (!forte || t - al.ultimaFala >= REPETE_FALA)) {
+          al.ultimaFala = t;
+          al.falandoAte = t + 12000;
+          falarDepois(fraseFalada(al.lista));
+        }
+      }
     }
   }
 
@@ -539,16 +937,28 @@
       }
       al.ligado = ler(LS_ALARME) === '1';
       al.vistos = lerVistos();
-      U.acoes['mon-atualizar'] = function () { m.proxima = 0; buscar(true); };
+      voz.ok = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+      voz.ligada = ler(LS_VOZ) !== '0';
+      try {
+        var n = JSON.parse(ler(LS_NOITE) || 'null');
+        if (n) { noite.tela = !!n.tela; noite.som = !!n.som; if (n.ini >= 0 && n.ini < 24) { noite.ini = n.ini; } if (n.fim >= 0 && n.fim < 24) { noite.fim = n.fim; } }
+      } catch (e2) { /* fica o padr\u00e3o */ }
+      m.proximaVersao = agoraMs() + 1800000;
+      U.acoes['mon-atualizar'] = function () { if (m.novaVersao) { window.location.reload(); return; } m.proxima = 0; buscar(true); };
       U.acoes['mon-chave'] = function () { mostrarSetup(true); };
       U.acoes['mon-salvar'] = salvarChave;
       U.acoes['mon-cancelar'] = function () { if (m.chave) { mostrarSetup(false); } };
       U.acoes['mon-grupo'] = function (id) { abrirDetalhe(id); };
       U.acoes['mon-fechar'] = fecharDetalhe;
       U.acoes['mon-pag'] = function (d) { m.pag += parseInt(d, 10) || 0; renderDetalhe(); };
+      U.acoes['mon-modelo'] = function (i) { abrirFicha(i); };
+      U.acoes['mon-ficha-fechar'] = fecharFicha;
       U.acoes['mon-alarme'] = function () { mostrarAlarmeCfg(true); };
       U.acoes['mon-al-ligar'] = alternarAlarme;
       U.acoes['mon-al-testar'] = testarSom;
+      U.acoes['mon-al-voz'] = alternarVoz;
+      U.acoes['mon-noite'] = mudarNoite;
+      U.acoes['mon-noite-acordar'] = function () { m.acordadoAte = agoraMs() + 120000; renderNoite(); };
       U.acoes['mon-al-fechar'] = function () { mostrarAlarmeCfg(false); };
       U.acoes['mon-al-ciente'] = ciente;
       for (var gi = 0; gi < GRUPOS.length; gi++) {
@@ -559,17 +969,17 @@
       if (inp) {
         inp.addEventListener('keydown', function (e) { if (e.keyCode === 13) { e.preventDefault(); salvarChave(); } }, false);
       }
-      // com o alarme ligado, o primeiro toque em qualquer lugar arma o som (exig\u00eancia do iOS)
-      var armar = function () { if (al.ligado && !som.liberado) { prepararSom(false); renderAlarmeBotao(); renderAlarmeCfg(); } };
-      document.addEventListener('touchend', armar, false);
-      document.addEventListener('mousedown', armar, false);
+      // qualquer toque: arma o som (exig\u00eancia do iOS) e mant\u00e9m a tela acesa por 2 minutos no hor\u00e1rio da noite
+      var toque = function () {
+        if (al.ligado && !som.liberado) { prepararSom(false); renderAlarmeBotao(); renderAlarmeCfg(); }
+        if (noite.tela) { var t = agoraMs() + 120000; if (t > m.acordadoAte) { m.acordadoAte = t; } }
+      };
+      document.addEventListener('touchend', toque, false);
+      document.addEventListener('mousedown', toque, false);
       if (!m.chave) { mostrarSetup(true); }
       document.addEventListener('visibilitychange', function () { if (!document.hidden) { m.proxima = 0; } }, false);
       if (window.applicationCache) {
-        window.applicationCache.addEventListener('updateready', function () {
-          try { window.applicationCache.swapCache(); } catch (e) { /* nada */ }
-          window.location.reload();
-        }, false);
+        window.applicationCache.addEventListener('updateready', versaoPronta, false);
       }
       render();
       buscar(false);

@@ -22,7 +22,7 @@ body { position: relative; }
   font-size: 30px; font-weight: 800;
   -webkit-transition: background 0.5s, box-shadow 0.5s; transition: background 0.5s, box-shadow 0.5s;
 }
-#mTit { position: absolute; left: 92px; top: 15px; width: 440px; font-size: 24px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; }
+#mTit { position: absolute; left: 92px; top: 15px; width: 440px; font-size: 24px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #mSub { position: absolute; left: 92px; top: 51px; width: 446px; font-size: 13px; color: #8b9dc3; white-space: nowrap; overflow: hidden; }
 #mRede { position: absolute; left: 548px; top: 29px; width: 120px; text-align: right; }
 #mBtnAlarme { left: 680px; top: 21px; width: 104px; height: 46px; line-height: 44px; font-size: 14px; }
@@ -52,6 +52,39 @@ body { position: relative; }
 .mi.off .mn { color: #6b7fa3; } .mi.off .mv { color: #6b7fa3; }
 .mmais { position: absolute; left: 18px; bottom: 10px; font-size: 11px; color: #4b6284; }
 .mvazio { padding: 26px 18px; color: #4b6284; font-size: 14px; line-height: 20px; }
+
+/* painel de saúde: uma linha por modelo, com as barrinhas das últimas atualizações */
+.mres { position: absolute; left: 18px; top: 38px; width: 290px; font-size: 12px; color: #8b9dc3; white-space: nowrap; overflow: hidden; }
+.mres24 { position: absolute; right: 14px; top: 38px; width: 170px; text-align: right; font-size: 12px; color: #4b6284; white-space: nowrap; }
+.mres24.ruim { color: #f59e0b; }
+.mgrade { position: absolute; left: 8px; top: 62px; right: 8px; }
+.mm { position: relative; height: 27px; border-top: 1px solid #0b1b2e; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.mm.erro { background: rgba(255, 122, 122, 0.12); } .mm.alerta { background: rgba(245, 158, 11, 0.09); }
+.mm .md { top: 9px; width: 8px; height: 8px; border-radius: 4px; }
+.mmn { position: absolute; left: 28px; top: 5px; width: 206px; font-size: 13px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmb { position: absolute; left: 242px; top: 5px; width: 84px; height: 17px; }
+.mmb i, .mfbar i { position: absolute; bottom: 0; display: block; border-radius: 1px; }
+.mmb i.rod, .mfbar i.rod { opacity: 0.5; }
+.mmt { position: absolute; right: 8px; top: 6px; width: 138px; text-align: right; font-size: 12px; color: #cfe3ff; white-space: nowrap; overflow: hidden; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.mmt.azul { color: #7fc4ff; } .mmt.alerta { color: #f59e0b; } .mmt.erro { color: #ff7a7a; } .mmt.off { color: #6b7fa3; }
+.mm.off .mmn { color: #6b7fa3; }
+
+/* linhas compactas (ferramentas e fontes) */
+.mc { position: relative; height: 36px; border-top: 1px solid #0e2238; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.mc.prim { border-top: 0; }
+.mc .md { top: 13px; }
+.mcn { position: absolute; left: 30px; top: 8px; width: 262px; font-size: 14px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcv { position: absolute; right: 10px; top: 10px; width: 168px; text-align: right; font-size: 12px; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.mc.off .mcn, .mc.off .mcv { color: #6b7fa3; }
+
+/* acontecimentos */
+.mgr2 { top: 14px; font-size: 11px; color: #4b6284; }
+.me { position: relative; height: 40px; border-top: 1px solid #0e2238; -webkit-box-sizing: border-box; box-sizing: border-box; }
+.me.prim { border-top: 0; }
+.meh { position: absolute; left: 8px; top: 6px; width: 84px; font-size: 11px; color: #8b9dc3; white-space: nowrap; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.me .md { left: 96px; top: 8px; width: 8px; height: 8px; border-radius: 4px; }
+.mex { position: absolute; left: 114px; top: 3px; width: 350px; font-size: 13px; font-weight: 600; color: #e8f2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.med { position: absolute; left: 114px; top: 21px; width: 350px; font-size: 11px; color: #8b9dc3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pg-monitor.velho .mgrupo { opacity: 0.5; }
 
 #mSetup {
@@ -84,17 +117,25 @@ body { position: relative; }
 #mDetFechar { left: 852px; top: 584px; width: 120px; height: 46px; line-height: 44px; font-size: 15px; }
 .btn.off { opacity: 0.3; }
 
-/* alarme sonoro: painel */
+/* alarme: painel com som, voz e noite */
 #mAlCfg {
-  left: 192px; top: 110px; width: 640px; height: 380px; z-index: 5; border-color: #22d3ee;
+  left: 152px; top: 56px; width: 720px; height: 500px; z-index: 5; border-color: #22d3ee;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 30px rgba(34, 211, 238, 0.2);
 }
-#mAlCfg .mst { top: 50px; }
-#mAlEstado { position: absolute; left: 18px; top: 214px; font-size: 15px; font-weight: 700; color: #ffffff; }
-#mAlLigar { left: 18px; top: 248px; width: 210px; height: 52px; line-height: 50px; font-size: 16px; }
-#mAlTestar { left: 240px; top: 248px; width: 160px; height: 52px; line-height: 50px; font-size: 15px; }
-#mAlFechar { left: 482px; top: 248px; width: 140px; height: 52px; line-height: 50px; font-size: 15px; }
-#mAlMsg { position: absolute; left: 18px; top: 316px; width: 600px; font-size: 13px; line-height: 18px; color: #f59e0b; }
+#mAlCfg .mst { top: 50px; width: 684px; }
+#mAlEstado { position: absolute; left: 18px; top: 172px; font-size: 15px; font-weight: 700; color: #ffffff; }
+#mAlLigar { left: 18px; top: 202px; width: 200px; height: 50px; line-height: 48px; font-size: 16px; }
+#mAlTestar { left: 228px; top: 202px; width: 150px; height: 50px; line-height: 48px; font-size: 15px; }
+#mAlVoz { left: 388px; top: 202px; width: 190px; height: 50px; line-height: 48px; font-size: 14px; }
+#mAlFechar { left: 588px; top: 202px; width: 114px; height: 50px; line-height: 48px; font-size: 15px; }
+#mNoiteRot { left: 18px; top: 292px; }
+#mNoiteIni { left: 122px; top: 276px; width: 84px; height: 44px; line-height: 42px; font-size: 15px; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+#mNoiteRot2 { left: 216px; top: 292px; }
+#mNoiteFim { left: 244px; top: 276px; width: 84px; height: 44px; line-height: 42px; font-size: 15px; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+#mNoiteTela { left: 340px; top: 276px; width: 176px; height: 44px; line-height: 42px; font-size: 13px; }
+#mNoiteSom { left: 524px; top: 276px; width: 178px; height: 44px; line-height: 42px; font-size: 12px; }
+#mAlMsg { position: absolute; left: 18px; top: 336px; width: 684px; height: 40px; font-size: 13px; line-height: 19px; color: #f59e0b; overflow: hidden; }
+#mAlNota { position: absolute; left: 18px; top: 396px; width: 684px; font-size: 12px; line-height: 18px; color: #6b7fa3; }
 
 /* alarme sonoro: aviso em tela cheia */
 #mAlerta {
@@ -116,3 +157,33 @@ body { position: relative; }
   left: 624px; top: 560px; width: 360px; height: 80px; line-height: 78px; font-size: 24px; font-weight: 800;
   background: #ffffff; color: #8a0014; border-color: #ffffff;
 }
+
+/* ficha do modelo */
+#mFicha { left: 16px; top: 14px; width: 992px; height: 648px; z-index: 7; border-color: #22d3ee; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65); }
+#mFichaCorpo { position: absolute; left: 0; top: 0; width: 990px; height: 572px; overflow: hidden; }
+#mFichaCorpo .ptit { width: 720px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfp { position: absolute; right: 18px; top: 14px; }
+.mfsub { position: absolute; left: 18px; top: 46px; width: 950px; font-size: 13px; color: #8b9dc3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfl { position: absolute; font-size: 10px; letter-spacing: 2px; color: #8b9dc3; font-weight: 700; white-space: nowrap; }
+.mfb { position: absolute; top: 82px; width: 232px; height: 86px; overflow: hidden; }
+.mfb .mfl { position: static; }
+.mfv { margin-top: 5px; font-size: 19px; line-height: 23px; font-weight: 700; color: #ffffff; max-height: 46px; overflow: hidden; }
+.mfs { margin-top: 3px; font-size: 12px; line-height: 15px; color: #8b9dc3; max-height: 30px; overflow: hidden; }
+.mfbar { position: absolute; left: 18px; top: 198px; width: 956px; height: 84px; border-bottom: 1px solid #14304d; }
+.mfcap { position: absolute; top: 290px; width: 300px; font-size: 11px; color: #4b6284; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+.mffx { position: absolute; left: 18px; top: 338px; width: 956px; height: 18px; }
+.mffx i { position: absolute; top: 0; width: 34px; height: 18px; border-radius: 3px; display: block; }
+.mft { position: absolute; left: 18px; width: 950px; height: 44px; font-size: 16px; line-height: 22px; color: #ffffff; overflow: hidden; }
+.mft.cinza { color: #8b9dc3 !important; }
+.mfd { position: absolute; left: 18px; width: 950px; font-size: 14px; line-height: 21px; color: #cfe3ff; }
+.mfd b { color: #22d3ee; }
+#mFichaVoltar { left: 852px; top: 584px; width: 120px; height: 46px; line-height: 44px; font-size: 15px; }
+.mi[data-act] .mn { color: #ffffff; }
+
+/* tela escura da noite: cobre o app inteiro */
+#mNoite { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; z-index: 30; background: #000000; }
+body.noite { background: #000000 !important; }
+#mNoiteHora { position: absolute; left: 0; top: 250px; width: 1024px; text-align: center; font-size: 150px; line-height: 160px; color: #14263c; letter-spacing: 4px; font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+#mNoiteLinha { position: absolute; left: 0; top: 440px; width: 1024px; text-align: center; font-size: 18px; color: #1d3654; }
+#mNoiteDot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 10px; opacity: 0.5; }
+#mNoiteDica { position: absolute; left: 0; top: 706px; width: 1024px; text-align: center; font-size: 11px; color: #0f2036; letter-spacing: 3px; }
