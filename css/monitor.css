@@ -5,7 +5,7 @@
 html, body { width: 100%; height: 100%; }
 body { position: relative; }
 
-/* 5 abas no lugar de 4 */
+/* abas da versão web (hoje só o Monitor; as outras saem do HTML no build) */
 .tab { width: 92px; font-size: 15px; }
 #tab-monitor { left: 0; } #tab-agora { left: 101px; } #tab-ritmo { left: 202px; } #tab-quadro { left: 303px; } #tab-foco { left: 404px; }
 .tab .rodando { font-size: 12px; }
@@ -22,19 +22,22 @@ body { position: relative; }
   font-size: 30px; font-weight: 800;
   -webkit-transition: background 0.5s, box-shadow 0.5s; transition: background 0.5s, box-shadow 0.5s;
 }
-#mTit { position: absolute; left: 92px; top: 15px; width: 520px; font-size: 24px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; }
-#mSub { position: absolute; left: 92px; top: 51px; width: 540px; font-size: 13px; color: #8b9dc3; white-space: nowrap; overflow: hidden; }
-#mRede { position: absolute; left: 640px; top: 29px; width: 140px; text-align: right; }
+#mTit { position: absolute; left: 92px; top: 15px; width: 440px; font-size: 24px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; }
+#mSub { position: absolute; left: 92px; top: 51px; width: 446px; font-size: 13px; color: #8b9dc3; white-space: nowrap; overflow: hidden; }
+#mRede { position: absolute; left: 548px; top: 29px; width: 120px; text-align: right; }
+#mBtnAlarme { left: 680px; top: 21px; width: 104px; height: 46px; line-height: 44px; font-size: 14px; }
+#mAlDica { position: absolute; left: 560px; top: 70px; width: 416px; text-align: right; font-size: 11px; color: #f59e0b; white-space: nowrap; }
 #mAtualizar { left: 792px; top: 21px; width: 104px; height: 46px; line-height: 44px; font-size: 14px; }
 #mBtnChave { left: 904px; top: 21px; width: 72px; height: 46px; line-height: 44px; font-size: 14px; }
 .pill.pq { font-size: 10px; padding: 3px 8px; letter-spacing: 1px; }
 
+/* posição e tamanho dos cartões vêm do monitor.js: 2 grupos = cartões altos lado a lado */
 .mgrupo { width: 488px; height: 270px; overflow: hidden; }
 #mG-bi { left: 16px; top: 114px; } #mG-ferramentas { left: 520px; top: 114px; }
 #mG-rotinas { left: 16px; top: 396px; } #mG-pendencias { left: 520px; top: 396px; }
 .mgt { position: absolute; left: 18px; top: 14px; font-size: 11px; letter-spacing: 2px; color: #8b9dc3; font-weight: 700; }
 .mgr { position: absolute; right: 14px; top: 10px; }
-.mlista { position: absolute; left: 8px; top: 40px; width: 472px; }
+.mlista { position: absolute; left: 8px; top: 40px; right: 8px; }
 .mi { position: relative; height: 50px; border-top: 1px solid #0e2238; }
 .mi.prim { border-top: 0; }
 .md { position: absolute; left: 10px; top: 13px; width: 10px; height: 10px; border-radius: 5px; display: block; }
@@ -47,7 +50,7 @@ body { position: relative; }
 .mdt { position: absolute; left: 30px; top: 29px; width: 340px; font-size: 12px; color: #8b9dc3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ma { position: absolute; right: 10px; top: 30px; width: 96px; text-align: right; font-size: 11px; color: #4b6284; white-space: nowrap; }
 .mi.off .mn { color: #6b7fa3; } .mi.off .mv { color: #6b7fa3; }
-.mmais { position: absolute; left: 18px; top: 246px; font-size: 11px; color: #4b6284; }
+.mmais { position: absolute; left: 18px; bottom: 10px; font-size: 11px; color: #4b6284; }
 .mvazio { padding: 26px 18px; color: #4b6284; font-size: 14px; line-height: 20px; }
 #pg-monitor.velho .mgrupo { opacity: 0.5; }
 
@@ -80,3 +83,36 @@ body { position: relative; }
 #mDetPag { position: absolute; left: 172px; top: 598px; font-size: 13px; color: #8b9dc3; }
 #mDetFechar { left: 852px; top: 584px; width: 120px; height: 46px; line-height: 44px; font-size: 15px; }
 .btn.off { opacity: 0.3; }
+
+/* alarme sonoro: painel */
+#mAlCfg {
+  left: 192px; top: 110px; width: 640px; height: 380px; z-index: 5; border-color: #22d3ee;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 30px rgba(34, 211, 238, 0.2);
+}
+#mAlCfg .mst { top: 50px; }
+#mAlEstado { position: absolute; left: 18px; top: 214px; font-size: 15px; font-weight: 700; color: #ffffff; }
+#mAlLigar { left: 18px; top: 248px; width: 210px; height: 52px; line-height: 50px; font-size: 16px; }
+#mAlTestar { left: 240px; top: 248px; width: 160px; height: 52px; line-height: 50px; font-size: 15px; }
+#mAlFechar { left: 482px; top: 248px; width: 140px; height: 52px; line-height: 50px; font-size: 15px; }
+#mAlMsg { position: absolute; left: 18px; top: 316px; width: 600px; font-size: 13px; line-height: 18px; color: #f59e0b; }
+
+/* alarme sonoro: aviso em tela cheia */
+#mAlerta {
+  position: absolute; left: 0; top: 0; width: 1024px; height: 676px; z-index: 8;
+  background: #2a050b; border-top: 3px solid #ff7a7a;
+  -webkit-animation: mPulsa 1.2s ease-in-out infinite; animation: mPulsa 1.2s ease-in-out infinite;
+}
+#mAlerta.esc { display: none; }
+@-webkit-keyframes mPulsa { 0% { background-color: #2a050b; } 50% { background-color: #6e0d1b; } 100% { background-color: #2a050b; } }
+@keyframes mPulsa { 0% { background-color: #2a050b; } 50% { background-color: #6e0d1b; } 100% { background-color: #2a050b; } }
+#mAlTit { position: absolute; left: 40px; top: 34px; font-size: 40px; font-weight: 800; color: #ffffff; letter-spacing: 2px; }
+#mAlLista { position: absolute; left: 40px; top: 104px; width: 944px; }
+.mali { margin-bottom: 16px; }
+.malg { font-size: 11px; letter-spacing: 2px; color: #ff9a9a; font-weight: 700; }
+.maln { margin-top: 2px; font-size: 24px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mald { margin-top: 2px; font-size: 15px; color: #ffd0d0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#mAlQuando { position: absolute; left: 40px; top: 580px; width: 560px; font-size: 14px; line-height: 20px; color: #ffb0b0; }
+#mAlCiente {
+  left: 624px; top: 560px; width: 360px; height: 80px; line-height: 78px; font-size: 24px; font-weight: 800;
+  background: #ffffff; color: #8a0014; border-color: #ffffff;
+}

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var VERSAO = '1.2';
+  var VERSAO = '1.3';
   var LS = 'cockpit.v1';
   var TODAS_ABAS = ['monitor', 'agora', 'ritmo', 'quadro', 'foco'];
   var ABAS = [];
@@ -115,7 +115,12 @@
     var y = d.getFullYear(), jan = new Date(y, 0, 1).getTimezoneOffset(), jul = new Date(y, 6, 1).getTimezoneOffset();
     return d.getTimezoneOffset() < Math.max(jan, jul);
   }
-  function corr(d) { return est.dst === 'corrigir' && dstAtivo(d) ? new Date(d.getTime() - 36e5) : d; }
+  /* Na vers\u00e3o web (window.COCKPIT_UTC_MIN definido) mostra sempre a hora de Bras\u00edlia calculada do rel\u00f3gio do iPad,
+     sem depender do fuso desatualizado do iOS 9. No livro, segue a escolha feita no aviso do hor\u00e1rio de ver\u00e3o. */
+  function corr(d) {
+    if (typeof window.COCKPIT_UTC_MIN === 'number') { return new Date(d.getTime() + (window.COCKPIT_UTC_MIN + d.getTimezoneOffset()) * 60000); }
+    return est.dst === 'corrigir' && dstAtivo(d) ? new Date(d.getTime() - 36e5) : d;
+  }
   function agora() { return corr(new Date()); }
 
   /* ================= feriados (nacionais + RJ + Niter\u00f3i) ================= */
@@ -1013,11 +1018,12 @@
     app.style.transform = t;
   }
   function iniciar() {
-    for (var i = 0; i < TODAS_ABAS.length; i++) { if ($('pg-' + TODAS_ABAS[i])) { ABAS.push(TODAS_ABAS[i]); } }
+    // uma aba existe quando a p\u00e1gina e o bot\u00e3o dela est\u00e3o no documento (a vers\u00e3o web pode esconder abas tirando o bot\u00e3o)
+    for (var i = 0; i < TODAS_ABAS.length; i++) { if ($('pg-' + TODAS_ABAS[i]) && $('tab-' + TODAS_ABAS[i])) { ABAS.push(TODAS_ABAS[i]); } }
     window.cockpitUtil = {
       $: $, esc: esc, html: html, txt: txt, classe: classe, num: num, curto: curto, rs: rs, pct: pct,
       pad2: pad2, hhmm: hhmm, ddmm: ddmm, DC: DC, DIAS: DIAS, MESES: MESES, plural: plural, minTxt: minTxt,
-      agora: agora, acoes: ACOES, irAba: irAba, versao: VERSAO, abaAtual: function () { return est.aba; }
+      agora: agora, corr: corr, acoes: ACOES, irAba: irAba, versao: VERSAO, abaAtual: function () { return est.aba; }
     };
     for (var x in EXTRAS) { if (EXTRAS.hasOwnProperty(x) && EXTRAS[x].iniciar) { EXTRAS[x].iniciar(window.cockpitUtil); } }
     montarTeclado('kp-ritmo');

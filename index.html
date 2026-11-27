@@ -14,12 +14,13 @@
 <link rel="apple-touch-icon" sizes="120x120" href="img/icone-120.png">
 <link rel="apple-touch-icon" sizes="152x152" href="img/icone-152.png">
 <link rel="apple-touch-icon" sizes="180x180" href="img/icone-180.png">
-<link rel="stylesheet" href="css/cockpit.css?v=1.2">
-<link rel="stylesheet" href="css/monitor.css?v=1.2">
-<script src="js/cockpit.js?v=1.2"></script>
-<script src="js/sha256.js?v=1.2"></script>
-<script src="js/aes.js?v=1.2"></script>
-<script src="js/monitor.js?v=1.2"></script>
+<link rel="stylesheet" href="css/cockpit.css?v=1.3">
+<link rel="stylesheet" href="css/monitor.css?v=1.3">
+<script>window.COCKPIT_UTC_MIN = -180;</script>
+<script src="js/cockpit.js?v=1.3"></script>
+<script src="js/sha256.js?v=1.3"></script>
+<script src="js/aes.js?v=1.3"></script>
+<script src="js/monitor.js?v=1.3"></script>
 </head>
 <body>
 <div id="app">
@@ -40,10 +41,6 @@
     </div>
     <div id="abas">
       <div id="tab-monitor" class="tab" data-act="aba" data-arg="monitor">Monitor<span id="tabMonDot" class="tdot"></span></div>
-      <div id="tab-agora" class="tab" data-act="aba" data-arg="agora">Agora</div>
-      <div id="tab-ritmo" class="tab" data-act="aba" data-arg="ritmo">Ritmo</div>
-      <div id="tab-quadro" class="tab" data-act="aba" data-arg="quadro">Quadro</div>
-      <div id="tab-foco" class="tab" data-act="aba" data-arg="foco"><span id="tabFocoTxt">Foco</span></div>
     </div>
     <div id="topoDir">
       <div id="topoHora" class="mono">--:--</div>
@@ -58,8 +55,10 @@
       <div id="mTit">Monitor</div>
       <div id="mSub">&#160;</div>
       <div id="mRede"></div>
+      <div id="mBtnAlarme" class="btn" data-act="mon-alarme">Alarme<span id="mAlDot" class="tdot"></span></div>
       <div id="mAtualizar" class="btn" data-act="mon-atualizar">Atualizar</div>
       <div id="mBtnChave" class="btn" data-act="mon-chave">Chave</div>
+      <div id="mAlDica"></div>
     </div>
     <div id="mG-bi" class="card mgrupo"></div>
     <div id="mG-ferramentas" class="card mgrupo"></div>
@@ -83,6 +82,25 @@
       <div id="mDetPag"></div>
       <div id="mDetFechar" class="btn pri" data-act="mon-fechar">Fechar</div>
     </div>
+    <div id="mAlCfg" class="card esc">
+      <div class="ptit">Alarme sonoro</div>
+      <div class="mst">Quando aparecer um <b>problema novo</b> (vermelho) ou os dados pararem de chegar, o iPad toca um alarme
+        e mostra o aviso em tela cheia até você tocar em <b>Ciente</b>.<br>
+        Funciona com o Monitor aberto na tela: deixe o iPad na tomada, com <b>Ajustes &#8250; Geral &#8250; Bloqueio Automático &#8250; Nunca</b>
+        e o volume alto. Sempre que abrir o app, toque uma vez na tela para armar o som.</div>
+      <div id="mAlEstado">&#160;</div>
+      <div id="mAlLigar" class="btn pri" data-act="mon-al-ligar">Ligar alarme</div>
+      <div id="mAlTestar" class="btn" data-act="mon-al-testar">Testar som</div>
+      <div id="mAlFechar" class="btn" data-act="mon-al-fechar">Fechar</div>
+      <div id="mAlMsg"></div>
+    </div>
+    <div id="mAlerta" class="esc">
+      <div id="mAlTit">PROBLEMA NOVO</div>
+      <div id="mAlLista"></div>
+      <div id="mAlQuando"></div>
+      <div id="mAlCiente" class="btn" data-act="mon-al-ciente">Ciente</div>
+    </div>
+    <audio id="mSom" src="som/alarme.wav" preload="auto"></audio>
   </div>
 
   <!-- ===== AGORA ===== -->
@@ -235,7 +253,7 @@
 
   <div id="rodape" data-livre="1">
     <span class="l">Central · o PC publica o status e o iPad lê pela própria internet</span>
-    <span class="r">Cockpit 1.2 · seus números ficam só neste iPad</span>
+    <span class="r">Cockpit 1.3 · Monitor da Central</span>
   </div>
   <div id="aviso" data-act="aviso"></div>
   <div id="flash"></div>

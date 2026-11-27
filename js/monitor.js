@@ -1,15 +1,18 @@
-/* Central \u00b7 Monitor (aba extra do Cockpit, vers\u00e3o web para o Safari do iPad 2).
+/* Central \u00b7 Monitor (aba do Cockpit, vers\u00e3o web para o Safari do iPad 2).
    Busca pela internet do pr\u00f3prio iPad o status que o coletor do PC publica no GitHub,
    abre com a chave da Central (AES-256-CTR, chave = SHA-256 de "central:" + chave digitada)
-   e mostra o sem\u00e1foro. Somente ES5. */
+   e mostra o sem\u00e1foro s\u00f3 com os grupos que o PC publica (config.json > grupos no PC).
+   Alarme sonoro opcional: toca quando aparece um problema novo (vermelho) ou os dados param de chegar.
+   Somente ES5. */
 (function () {
   'use strict';
 
   var U = null;
   var LS_CHAVE = 'central.chave';
   var LS_ULTIMO = 'central.ultimo';
+  var LS_ALARME = 'central.alarme';
+  var LS_VISTOS = 'central.alarme.vistos';
   var INTERVALO = 60000;
-  var MAX_ITENS = 4;
   var GRUPOS = [
     { id: 'bi', nome: 'BI' },
     { id: 'ferramentas', nome: 'FERRAMENTAS' },
@@ -23,8 +26,12 @@
     chave: ['vermelho', 'CHAVE ERRADA'], semchave: ['ambar', 'SEM CHAVE'], semdados: ['ambar', 'SEM DADOS'],
     erro: ['vermelho', 'ERRO']
   };
-  var m = { chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0, det: null, pag: 0 };
+  var m = { chave: '', env: null, dados: null, recebidoEm: 0, rede: 'iniciando', msg: '', buscando: false, proxima: 0, ultimoRender: 0, det: null, pag: 0, tentativas: 0 };
   var POR_PAGINA = 10;
+  /* alarme: toca sem parar nos 3 primeiros minutos e depois lembra a cada 5 minutos, at\u00e9 tocar em Ciente */
+  var ALARME_FORTE = 180000, REPETE_FORTE = 2600, REPETE_FRACO = 300000;
+  var al = { ligado: false, base: false, vistos: {}, tocando: false, desde: 0, ultimoSom: 0, lista: [] };
+  var som = { el: null, ac: null, liberado: false, elOk: false };
 
   function ler(k) { try { return window.localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function gravar(k, v) {
@@ -39,6 +46,8 @@
   }
   function agoraMs() { return new Date().getTime(); }
   function quando(iso) { var t = iso ? Date.parse(iso) : NaN; return isNaN(t) ? null : t; }
+  /* hora de Bras\u00edlia, mesmo com o fuso desatualizado do iOS 9 */
+  function hora(ms) { var d = new Date(ms); return U.hhmm(U.corr ? U.corr(d) : d); }
   function idadeTxt(ms) {
     var min = Math.floor(Math.max(0, ms) / 60000);
     if (min < 1) { return 'agora'; }
@@ -104,6 +113,7 @@
       if (terminou) { return; }
       terminou = true;
       m.buscando = false;
+      m.tentativas++;
       m.proxima = agoraMs() + INTERVALO;
       tratar(status, texto);
       render();
@@ -118,7 +128,7 @@
     } catch (e) { fim(0, ''); }
   }
 
-  /* ---------- desenho ---------- */
+  /* ---------- grupos publicados pelo PC ---------- */
   function itensDo(grupo) {
     var d = m.dados, itens = [];
     if (d && d.grupos) {
@@ -126,10 +136,29 @@
     }
     return itens;
   }
+  /* s\u00f3 os grupos que o PC publica, na ordem do Monitor; sem dados, BI e Ferramentas */
+  function gruposVisiveis() {
+    var d = m.dados, vis = [], i, j;
+    if (d && d.grupos && d.grupos.length) {
+      for (i = 0; i < GRUPOS.length; i++) {
+        for (j = 0; j < d.grupos.length; j++) { if (d.grupos[j] && d.grupos[j].id === GRUPOS[i].id) { vis.push(GRUPOS[i]); break; } }
+      }
+    }
+    return vis.length ? vis : GRUPOS.slice(0, 2);
+  }
+  /* 1 grupo: tela toda \u00b7 2: cart\u00f5es altos lado a lado \u00b7 3 e 4: grade 2x2 (o 3\u00ba ocupa a linha de baixo) */
+  function posicoes(vis) {
+    var n = vis.length, pos = {}, i;
+    for (i = 0; i < n; i++) {
+      var alto = n <= 2, largo = n === 1 || (n === 3 && i === 2);
+      pos[vis[i].id] = { x: largo || i % 2 === 0 ? 16 : 520, y: alto || i < 2 ? 114 : 396, w: largo ? 992 : 488, h: alto ? 552 : 270 };
+    }
+    return pos;
+  }
   function contar() {
-    var c = { erro: 0, alerta: 0, total: 0 };
-    for (var g = 0; g < GRUPOS.length; g++) {
-      var it = itensDo(GRUPOS[g].id);
+    var c = { erro: 0, alerta: 0, total: 0 }, vis = gruposVisiveis();
+    for (var g = 0; g < vis.length; g++) {
+      var it = itensDo(vis[g].id);
       for (var i = 0; i < it.length; i++) {
         c.total++;
         if (it[i].estado === 'erro') { c.erro++; } else if (it[i].estado === 'alerta') { c.alerta++; }
@@ -137,13 +166,19 @@
     }
     return c;
   }
+  function dadosVelhos() {
+    var d = m.dados, gerado = d ? quando(d.gerado) : null;
+    if (gerado === null) { return false; }
+    return agoraMs() - gerado > ((d.pc && d.pc.intervaloMin) || 5) * 3 * 60000;
+  }
+
+  /* ---------- desenho ---------- */
   function renderHero() {
     var d = m.dados, agora = agoraMs(), gerado = d ? quando(d.gerado) : null, c = contar();
-    var limite = ((d && d.pc && d.pc.intervaloMin) || 5) * 3 * 60000;
-    var velho = gerado !== null && agora - gerado > limite;
+    var velho = dadosVelhos();
     var cor, sim, tit, sub;
     if (!d) { cor = 'off'; sim = '?'; tit = m.chave ? 'Esperando os dados do PC' : 'Monitor sem chave'; }
-    else if (velho) { cor = 'erro'; sim = '!'; tit = 'O PC parou de enviar ' + idadeTxt(agora - gerado); }
+    else if (velho) { cor = 'erro'; sim = '!'; tit = (m.rede === 'offline' ? 'iPad sem internet ' : 'O PC parou de enviar ') + idadeTxt(agora - gerado); }
     else if (c.erro) {
       cor = 'erro'; sim = '!';
       tit = c.erro + ' ' + U.plural(c.erro, 'problema', 'problemas') + (c.alerta ? ' \u00b7 ' + c.alerta + ' ' + U.plural(c.alerta, 'alerta', 'alertas') : '');
@@ -155,9 +190,9 @@
     U.txt('mSem', sim);
     U.txt('mTit', tit);
     if (d && gerado !== null) {
-      var g = new Date(gerado);
-      sub = 'Dados do PC' + (d.pc && d.pc.nome ? ' ' + d.pc.nome : '') + ' de ' + U.hhmm(g) + ' (' + idadeTxt(agora - gerado) + ')';
-      if (m.rede !== 'online' && m.msg) { sub += ' \u00b7 ' + m.msg; }
+      sub = 'Dados do PC' + (d.pc && d.pc.nome ? ' ' + d.pc.nome : '') + ' de ' + hora(gerado) + ' (' + idadeTxt(agora - gerado) + ')';
+      if (gerado - agora > 300000) { sub = 'O rel\u00f3gio do iPad est\u00e1 atrasado: ligue Ajustes \u203a Geral \u203a Data e Hora \u203a Autom\u00e1tico'; }
+      else if (m.rede !== 'online' && m.msg) { sub += ' \u00b7 ' + m.msg; }
     } else {
       sub = m.msg || (m.chave ? 'Buscando o status publicado pelo PC\u2026' : 'Toque em Chave e digite a chave da Central.');
     }
@@ -168,7 +203,7 @@
     var dot = U.$('tabMonDot');
     if (dot) { dot.style.background = COR[cor]; }
   }
-  function renderGrupo(g) {
+  function renderGrupo(g, max) {
     var agora = agoraMs(), itens = itensDo(g.id).slice(0), i;
     for (i = 0; i < itens.length; i++) { itens[i]._o = i; }
     itens.sort(function (a, b) { return ((PESO[b.estado] || 0) - (PESO[a.estado] || 0)) || (a._o - b._o); });
@@ -182,18 +217,32 @@
       (nAtivos ? ['verde', 'OK'] : ['cinza', itens.length ? 'EM BREVE' : '\u2014']));
     var s = '<div class="mgt">' + U.esc(g.nome) + '</div><div class="mgr"><span class="pill pq ' + pill[0] + '">' + pill[1] + '</span></div><div class="mlista">';
     if (!itens.length) { s += '<div class="mvazio">' + (m.dados ? 'Nada para mostrar aqui.' : 'Sem dados ainda.') + '</div>'; }
-    for (i = 0; i < itens.length && i < MAX_ITENS; i++) {
+    for (i = 0; i < itens.length && i < max; i++) {
       var it = itens[i], est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando);
       s += '<div class="mi ' + est + (i === 0 ? ' prim' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
         '<div class="mdt">' + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
     }
     s += '</div>';
-    if (itens.length > MAX_ITENS) {
-      var resto = itens.length - MAX_ITENS;
+    if (itens.length > max) {
+      var resto = itens.length - max;
       s += '<div class="mmais">+ ' + resto + ' ' + U.plural(resto, 'outro item', 'outros itens') + ' \u00b7 toque para ver todos</div>';
     }
     U.html('mG-' + g.id, s);
+  }
+  function renderGrupos() {
+    var vis = gruposVisiveis(), pos = posicoes(vis);
+    for (var i = 0; i < GRUPOS.length; i++) {
+      var g = GRUPOS[i], el = U.$('mG-' + g.id), p = pos[g.id];
+      if (!el) { continue; }
+      if (!p) { el.style.display = 'none'; continue; }
+      el.style.display = 'block';
+      el.style.left = p.x + 'px';
+      el.style.top = p.y + 'px';
+      el.style.width = p.w + 'px';
+      el.style.height = p.h + 'px';
+      renderGrupo(g, Math.max(1, Math.floor((p.h - 66) / 50)));
+    }
   }
 
   /* ---------- lista completa de um grupo (toque no cart\u00e3o) ---------- */
@@ -244,8 +293,204 @@
     if (!U) { return; }
     m.ultimoRender = agoraMs();
     renderHero();
-    for (var i = 0; i < GRUPOS.length; i++) { renderGrupo(GRUPOS[i]); }
+    renderGrupos();
     renderDetalhe();
+    verificarAlarme();
+    renderAlarmeBotao();
+  }
+
+  /* ---------- som do alarme ----------
+     O iOS s\u00f3 deixa tocar som depois de um toque na tela. O <audio> toca mesmo com o iPad no silencioso;
+     o Web Audio fica de reserva, se o arquivo n\u00e3o tocar. */
+  function prepararSom(vaiTocar) {
+    if (!som.el) {
+      som.el = U.$('mSom');
+      if (som.el) {
+        som.el.addEventListener('playing', function () { som.elOk = true; }, false);
+        som.el.addEventListener('error', function () { som.elOk = false; }, false);
+      }
+    }
+    if (!som.liberado && som.el && !vaiTocar) {
+      try { som.el.load(); } catch (e) { /* nada */ }
+    }
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !som.ac) { som.ac = new AC(); }
+      if (som.ac) {
+        var b = som.ac.createBuffer(1, 1, 22050), s = som.ac.createBufferSource();
+        s.buffer = b;
+        s.connect(som.ac.destination);
+        if (s.start) { s.start(0); } else { s.noteOn(0); }
+        if (som.ac.resume) { som.ac.resume(); }
+      }
+    } catch (e2) { som.ac = null; }
+    som.liberado = true;
+  }
+  function bipe() {
+    var ac = som.ac;
+    if (!ac) { return; }
+    try {
+      var t0 = ac.currentTime + 0.05;
+      for (var i = 0; i < 6; i++) {
+        var o = ac.createOscillator(), g = ac.createGain(), t = t0 + i * 0.2;
+        try { o.type = 'square'; } catch (e1) { /* tom padr\u00e3o */ }
+        o.frequency.value = i % 2 ? 740 : 988;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+        g.gain.setValueAtTime(0.3, t + 0.14);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.connect(g);
+        g.connect(ac.destination);
+        if (o.start) { o.start(t); o.stop(t + 0.17); } else { o.noteOn(t); o.noteOff(t + 0.17); }
+      }
+    } catch (e) { /* sem som */ }
+  }
+  function tocar() {
+    var foi = false;
+    if (som.el && !som.el.error) {
+      try { som.el.currentTime = 0; } catch (e) { /* ainda carregando */ }
+      try {
+        var r = som.el.play();
+        // navegadores novos devolvem uma promessa: ela decide; se recusarem o arquivo, vale o Web Audio
+        if (r && typeof r.then === 'function') {
+          r.then(function () { som.elOk = true; }, function () { som.elOk = false; bipe(); });
+          return;
+        }
+        foi = true;
+      } catch (e2) { foi = false; }
+    }
+    // iOS 9: play() n\u00e3o avisa se tocou; at\u00e9 o arquivo confirmar que toca, o Web Audio toca junto
+    if (!foi || !som.elOk) { bipe(); }
+  }
+  function pararSom() { try { if (som.el) { som.el.pause(); } } catch (e) { /* nada */ } }
+
+  /* ---------- alarme: o que \u00e9 problema novo ---------- */
+  function lerVistos() {
+    var o = {};
+    try { var a = JSON.parse(ler(LS_VISTOS) || '[]'); for (var i = 0; i < a.length; i++) { o[a[i]] = true; } } catch (e) { o = {}; }
+    return o;
+  }
+  function salvarVistos() {
+    var a = [];
+    for (var k in al.vistos) { if (al.vistos.hasOwnProperty(k)) { a.push(k); } }
+    gravar(LS_VISTOS, JSON.stringify(a.slice(-200)));
+  }
+  /* cada item vermelho \u00e9 um problema; a chave inclui a hora da falha, ent\u00e3o uma falha nova do mesmo modelo toca de novo */
+  function problemasAtuais() {
+    var lista = [], d = m.dados, vis = gruposVisiveis(), i, j;
+    if (!d) { return lista; }
+    for (i = 0; i < vis.length; i++) {
+      var itens = itensDo(vis[i].id);
+      for (j = 0; j < itens.length; j++) {
+        var it = itens[j];
+        if (it && it.estado === 'erro') {
+          lista.push({ chave: vis[i].id + '|' + (it.nome || '') + '|' + (it.quando || ''), grupo: vis[i].nome, nome: it.nome || '', valor: it.valor || '', detalhe: it.detalhe || '' });
+        }
+      }
+    }
+    if (dadosVelhos()) {
+      var g = quando(d.gerado), semNet = m.rede === 'offline';
+      lista.push({
+        chave: 'parado|' + d.gerado, grupo: 'MONITOR',
+        nome: semNet ? 'O iPad est\u00e1 sem internet' : 'O PC parou de enviar', valor: idadeTxt(agoraMs() - g),
+        detalhe: 'Os dados est\u00e3o parados desde ' + hora(g) + (semNet ? '. Confira o Wi-Fi do iPad.' : '. Confira se o PC est\u00e1 ligado e com a Central rodando.')
+      });
+    }
+    return lista;
+  }
+  function naLista(chave) {
+    for (var i = 0; i < al.lista.length; i++) { if (al.lista[i].chave === chave) { return true; } }
+    return false;
+  }
+  function verificarAlarme() {
+    // s\u00f3 depois da primeira busca desta abertura: o \u00faltimo status salvo pode estar velho
+    if (!m.dados || m.tentativas === 0 || m.buscando) { return; }
+    var atuais = problemasAtuais(), mapa = {}, novos = [], i, k, mudou = false;
+    for (i = 0; i < atuais.length; i++) { mapa[atuais[i].chave] = true; }
+    if (!dadosVelhos()) {
+      // o que j\u00e1 foi resolvido sai da mem\u00f3ria: se voltar a acontecer, toca de novo
+      for (k in al.vistos) { if (al.vistos.hasOwnProperty(k) && !mapa[k]) { delete al.vistos[k]; mudou = true; } }
+    }
+    if (al.ligado && al.base) {
+      // acabou de ligar: o que j\u00e1 est\u00e1 vermelho na tela n\u00e3o toca, vale o que aparecer daqui em diante
+      for (i = 0; i < atuais.length; i++) { al.vistos[atuais[i].chave] = true; }
+      al.base = false;
+      mudou = true;
+    }
+    if (mudou) { salvarVistos(); }
+    if (!al.ligado) { return; }
+    for (i = 0; i < atuais.length; i++) { if (!al.vistos[atuais[i].chave] && !naLista(atuais[i].chave)) { novos.push(atuais[i]); } }
+    if (novos.length) { dispararAlarme(novos); }
+  }
+  function dispararAlarme(novos) {
+    for (var i = 0; i < novos.length; i++) { al.lista.push(novos[i]); }
+    al.tocando = true;
+    al.desde = agoraMs();
+    al.ultimoSom = al.desde;
+    mostrarAlerta();
+    tocar();
+  }
+  function mostrarAlerta() {
+    var n = al.lista.length, s = '', i;
+    U.txt('mAlTit', n === 1 ? 'PROBLEMA NOVO' : n + ' PROBLEMAS NOVOS');
+    for (i = 0; i < n && i < 5; i++) {
+      var p = al.lista[i];
+      s += '<div class="mali"><div class="malg">' + U.esc(p.grupo) + '</div><div class="maln">' + U.esc(p.nome) + (p.valor ? ' \u00b7 ' + U.esc(p.valor) : '') + '</div>' +
+        '<div class="mald">' + U.esc(p.detalhe) + '</div></div>';
+    }
+    if (n > 5) { s += '<div class="mald">+ ' + (n - 5) + ' ' + U.plural(n - 5, 'outro', 'outros') + ' no Monitor</div>'; }
+    U.html('mAlLista', s);
+    U.txt('mAlQuando', 'Detectado \u00e0s ' + hora(al.desde) + ' \u00b7 o alarme toca at\u00e9 voc\u00ea tocar em Ciente');
+    U.classe(U.$('mAlerta'), 'esc', false);
+  }
+  function ciente() {
+    for (var i = 0; i < al.lista.length; i++) { al.vistos[al.lista[i].chave] = true; }
+    salvarVistos();
+    al.lista = [];
+    al.tocando = false;
+    pararSom();
+    U.classe(U.$('mAlerta'), 'esc', true);
+  }
+
+  /* ---------- alarme: bot\u00e3o e painel ---------- */
+  function renderAlarmeBotao() {
+    var dot = U.$('mAlDot');
+    if (dot) { dot.style.background = !al.ligado ? COR.off : (som.liberado ? COR.ok : COR.alerta); }
+    U.txt('mAlDica', al.ligado && !som.liberado ? 'alarme ligado \u00b7 toque na tela para armar o som' : '');
+  }
+  function renderAlarmeCfg() {
+    U.txt('mAlLigar', al.ligado ? 'Desligar alarme' : 'Ligar alarme');
+    U.classe(U.$('mAlLigar'), 'pri', !al.ligado);
+    U.txt('mAlEstado', al.ligado ? (som.liberado ? 'Alarme LIGADO \u00b7 som armado' : 'Alarme LIGADO \u00b7 toque na tela para armar o som') : 'Alarme DESLIGADO');
+  }
+  function mostrarAlarmeCfg(on) {
+    if (on) { U.txt('mAlMsg', ''); renderAlarmeCfg(); }
+    U.classe(U.$('mAlCfg'), 'esc', !on);
+  }
+  function alternarAlarme() {
+    if (al.ligado) {
+      al.ligado = false;
+      gravar(LS_ALARME, null);
+      if (al.tocando) { ciente(); }
+      U.txt('mAlMsg', 'O Monitor continua mostrando os problemas, s\u00f3 sem som.');
+    } else {
+      prepararSom(true);
+      al.ligado = true;
+      al.base = true;
+      gravar(LS_ALARME, '1');
+      tocar();
+      verificarAlarme();
+      U.txt('mAlMsg', 'Tocou um exemplo do alarme. N\u00e3o ouviu? Aumente o volume do iPad.');
+    }
+    renderAlarmeCfg();
+    renderAlarmeBotao();
+  }
+  function testarSom() {
+    prepararSom(true);
+    tocar();
+    U.txt('mAlMsg', 'Tocou? Se n\u00e3o ouviu, aumente o volume do iPad.');
+    renderAlarmeCfg();
+    renderAlarmeBotao();
   }
 
   /* ---------- chave ---------- */
@@ -278,6 +523,10 @@
     var t = agoraMs();
     if (!m.buscando && t >= m.proxima && document.hidden !== true) { buscar(false); }
     if (t - m.ultimoRender > 30000) { render(); }
+    if (al.tocando && document.hidden !== true) {
+      var forte = t - al.desde < ALARME_FORTE;
+      if (t - al.ultimoSom >= (forte ? REPETE_FORTE : REPETE_FRACO)) { al.ultimoSom = t; tocar(); }
+    }
   }
 
   window.cockpitRegistrar('monitor', {
@@ -288,6 +537,8 @@
       if (ult) {
         try { var o = JSON.parse(ult); m.dados = o.dados || null; m.recebidoEm = o.recebidoEm || 0; } catch (e) { m.dados = null; }
       }
+      al.ligado = ler(LS_ALARME) === '1';
+      al.vistos = lerVistos();
       U.acoes['mon-atualizar'] = function () { m.proxima = 0; buscar(true); };
       U.acoes['mon-chave'] = function () { mostrarSetup(true); };
       U.acoes['mon-salvar'] = salvarChave;
@@ -295,6 +546,11 @@
       U.acoes['mon-grupo'] = function (id) { abrirDetalhe(id); };
       U.acoes['mon-fechar'] = fecharDetalhe;
       U.acoes['mon-pag'] = function (d) { m.pag += parseInt(d, 10) || 0; renderDetalhe(); };
+      U.acoes['mon-alarme'] = function () { mostrarAlarmeCfg(true); };
+      U.acoes['mon-al-ligar'] = alternarAlarme;
+      U.acoes['mon-al-testar'] = testarSom;
+      U.acoes['mon-al-fechar'] = function () { mostrarAlarmeCfg(false); };
+      U.acoes['mon-al-ciente'] = ciente;
       for (var gi = 0; gi < GRUPOS.length; gi++) {
         var cartao = U.$('mG-' + GRUPOS[gi].id);
         if (cartao) { cartao.setAttribute('data-act', 'mon-grupo'); cartao.setAttribute('data-arg', GRUPOS[gi].id); }
@@ -303,6 +559,10 @@
       if (inp) {
         inp.addEventListener('keydown', function (e) { if (e.keyCode === 13) { e.preventDefault(); salvarChave(); } }, false);
       }
+      // com o alarme ligado, o primeiro toque em qualquer lugar arma o som (exig\u00eancia do iOS)
+      var armar = function () { if (al.ligado && !som.liberado) { prepararSom(false); renderAlarmeBotao(); renderAlarmeCfg(); } };
+      document.addEventListener('touchend', armar, false);
+      document.addEventListener('mousedown', armar, false);
       if (!m.chave) { mostrarSetup(true); }
       document.addEventListener('visibilitychange', function () { if (!document.hidden) { m.proxima = 0; } }, false);
       if (window.applicationCache) {
