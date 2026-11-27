@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR" manifest="central.appcache">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1024, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Cockpit">
+<meta name="format-detection" content="telephone=no">
+<meta name="robots" content="noindex">
+<title>Cockpit · Central</title>
+<link rel="apple-touch-icon" href="img/icone-152.png">
+<link rel="apple-touch-icon" sizes="76x76" href="img/icone-76.png">
+<link rel="apple-touch-icon" sizes="120x120" href="img/icone-120.png">
+<link rel="apple-touch-icon" sizes="152x152" href="img/icone-152.png">
+<link rel="apple-touch-icon" sizes="180x180" href="img/icone-180.png">
+<link rel="stylesheet" href="css/cockpit.css?v=1.1">
+<link rel="stylesheet" href="css/monitor.css?v=1.1">
+<script src="js/cockpit.js?v=1.1"></script>
+<script src="js/sha256.js?v=1.1"></script>
+<script src="js/aes.js?v=1.1"></script>
+<script src="js/monitor.js?v=1.1"></script>
+</head>
+<body>
+<div id="app">
+  <div id="fundo"></div>
+
+  <!-- ===== Barra de cima ===== -->
+  <div id="topo">
+    <div id="marca" data-livre="1">
+      <svg class="logo" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <rect x="0.5" y="0.5" width="39" height="39" rx="10" fill="#07111f" stroke="#1d4a73"/>
+        <rect x="8" y="21" width="5.5" height="11" rx="1.5" fill="#22d3ee"/>
+        <rect x="17.25" y="15" width="5.5" height="17" rx="1.5" fill="#38bdf8"/>
+        <rect x="26.5" y="12" width="5.5" height="20" rx="1.5" fill="#7fc4ff"/>
+        <circle cx="29.25" cy="7" r="2.6" fill="#4ee892"/>
+      </svg>
+      <div class="mt">COCKPIT</div>
+      <div class="ms">ClimaRio BI · central</div>
+    </div>
+    <div id="abas">
+      <div id="tab-monitor" class="tab" data-act="aba" data-arg="monitor">Monitor<span id="tabMonDot" class="tdot"></span></div>
+      <div id="tab-agora" class="tab" data-act="aba" data-arg="agora">Agora</div>
+      <div id="tab-ritmo" class="tab" data-act="aba" data-arg="ritmo">Ritmo</div>
+      <div id="tab-quadro" class="tab" data-act="aba" data-arg="quadro">Quadro</div>
+      <div id="tab-foco" class="tab" data-act="aba" data-arg="foco"><span id="tabFocoTxt">Foco</span></div>
+    </div>
+    <div id="topoDir">
+      <div id="topoHora" class="mono">--:--</div>
+      <div id="topoData">&#160;</div>
+    </div>
+  </div>
+
+  <!-- ===== MONITOR ===== -->
+  <div id="pg-monitor" class="pg">
+    <div id="mHero" class="card">
+      <div id="mSem">?</div>
+      <div id="mTit">Monitor</div>
+      <div id="mSub">&#160;</div>
+      <div id="mRede"></div>
+      <div id="mAtualizar" class="btn" data-act="mon-atualizar">Atualizar</div>
+      <div id="mBtnChave" class="btn" data-act="mon-chave">Chave</div>
+    </div>
+    <div id="mG-bi" class="card mgrupo"></div>
+    <div id="mG-ferramentas" class="card mgrupo"></div>
+    <div id="mG-rotinas" class="card mgrupo"></div>
+    <div id="mG-pendencias" class="card mgrupo"></div>
+    <div id="mSetup" class="card esc">
+      <div class="ptit">Ligar o Monitor</div>
+      <div class="mst">Digite a <b>chave da Central</b>. Ela está no PC, no arquivo <b>CHAVE-DO-IPAD.txt</b>
+        (Área de Trabalho &#8250; PainelIpad &#8250; Central). É só uma vez: o iPad guarda a chave.
+        Com ela, o iPad abre o status que o PC publica criptografado na internet.</div>
+      <input id="mChave" type="text" autocapitalize="characters" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX">
+      <div id="mSalvar" class="btn pri" data-act="mon-salvar">Salvar chave</div>
+      <div id="mCancelar" class="btn" data-act="mon-cancelar">Cancelar</div>
+      <div id="mSetupMsg"></div>
+    </div>
+  </div>
+
+  <!-- ===== AGORA ===== -->
+  <div id="pg-agora" class="pg">
+    <div id="cRel" class="card">
+      <div id="relHora"><span id="relH" class="mono">--:--</span><span id="relS" class="mono"></span></div>
+      <div id="relData">&#160;</div>
+      <div id="relChips"></div>
+      <div id="dstAviso" class="esc"></div>
+    </div>
+    <div id="tDia" class="card tile"></div>
+    <div id="tFalta" class="card tile"></div>
+    <div id="tFer" class="card tile"></div>
+    <div id="cProg" class="card">
+      <div id="progs"></div>
+      <div id="resRitmo" class="mini" data-act="aba" data-arg="ritmo"></div>
+      <div id="resFoco" class="mini" data-act="aba" data-arg="foco"></div>
+    </div>
+    <div id="cCal" class="card">
+      <div id="calTit">&#160;</div>
+      <div id="calHoje" class="btn sm" data-act="mes" data-arg="0">Hoje</div>
+      <div id="calAnt" class="btn sm" data-act="mes" data-arg="-1">&#8249;</div>
+      <div id="calProx" class="btn sm" data-act="mes" data-arg="1">&#8250;</div>
+      <div id="calSem">
+        <span style="left:0px">D</span><span style="left:52px">S</span><span style="left:104px">T</span><span style="left:156px">Q</span><span style="left:208px">Q</span><span style="left:260px">S</span><span style="left:312px">S</span>
+      </div>
+      <div id="calGrade"></div>
+      <div id="calConta"></div>
+      <div id="calSabLbl" class="lbl">SÁBADO CONTA COMO</div>
+      <div id="calSab" class="seg">
+        <div id="sab-0" style="left:0px;width:116px" data-act="sab" data-arg="0">Folga</div>
+        <div id="sab-05" style="left:122px;width:116px" data-act="sab" data-arg="0.5">½ dia útil</div>
+        <div id="sab-1" style="left:244px;width:116px" data-act="sab" data-arg="1">Dia útil</div>
+      </div>
+      <div id="calFer"></div>
+      <div id="calDica">Toque num dia para trocar entre útil e folga.</div>
+    </div>
+  </div>
+
+  <!-- ===== RITMO ===== -->
+  <div id="pg-ritmo" class="pg">
+    <div id="rEsq" class="card">
+      <div class="ptit">Ritmo do mês</div>
+      <div id="rMes" class="psub">&#160;</div>
+      <div id="rEx" class="ex">EXEMPLO · DIGITE PARA USAR OS SEUS</div>
+      <div id="f-meta" class="campo c1" data-act="campo" data-arg="meta">
+        <div class="cl">META DO MÊS</div>
+        <div id="v-meta" class="cv mono"></div>
+        <div id="s-meta" class="cs"></div>
+      </div>
+      <div id="f-real" class="campo c1" data-act="campo" data-arg="real">
+        <div class="cl">REALIZADO NO MÊS</div>
+        <div id="v-real" class="cv mono"></div>
+        <div id="s-real" class="cs"></div>
+      </div>
+      <div id="rAteLbl" class="lbl">O REALIZADO VAI ATÉ</div>
+      <div id="rAte" class="seg">
+        <div id="ate-ontem" style="left:0px;width:181px" data-act="ate" data-arg="ontem">ontem</div>
+        <div id="ate-hoje" style="left:187px;width:181px" data-act="ate" data-arg="hoje">hoje (dia fechado)</div>
+      </div>
+      <div id="kp-ritmo" class="kp"></div>
+    </div>
+    <div id="rDir" class="card">
+      <svg id="rAnel" xmlns="http://www.w3.org/2000/svg" width="190" height="190" viewBox="0 0 190 190">
+        <circle class="trilho" cx="95" cy="95" r="80" fill="none" stroke-width="14"/>
+        <circle id="rArco" class="arco" cx="95" cy="95" r="80" fill="none" stroke-width="14" stroke-linecap="round" stroke-dasharray="502.65" stroke-dashoffset="502.65" transform="rotate(-90 95 95)"/>
+      </svg>
+      <div id="rPct" class="mono">&#160;</div>
+      <div id="rPctSub">&#160;</div>
+      <div id="rStatus"></div>
+      <div id="rProj"></div>
+      <div id="rT1" class="tile2"></div>
+      <div id="rT2" class="tile2"></div>
+      <div id="rT3" class="tile2"></div>
+      <div id="rGraf"></div>
+    </div>
+  </div>
+
+  <!-- ===== QUADRO ===== -->
+  <div id="pg-quadro" class="pg">
+    <div id="qEsq" class="card">
+      <div class="ptit">Quadro ideal</div>
+      <div class="psub">a régua aplicada a uma loja, no mês</div>
+      <div id="qEx" class="ex">EXEMPLO · DIGITE PARA USAR OS SEUS</div>
+      <div id="f-fat" class="campo c2" data-act="campo" data-arg="fat">
+        <div class="cl">FATURAMENTO</div>
+        <div id="v-fat" class="cv mono"></div>
+        <div id="s-fat" class="cs"></div>
+      </div>
+      <div id="f-sai" class="campo c2" data-act="campo" data-arg="sai">
+        <div class="cl">SAÍDA FÍSICA</div>
+        <div id="v-sai" class="cv mono"></div>
+        <div id="s-sai" class="cs"></div>
+      </div>
+      <div id="f-vend" class="campo c2" data-act="campo" data-arg="vend">
+        <div class="cl">VENDEDORES HOJE</div>
+        <div id="v-vend" class="cv mono"></div>
+        <div id="s-vend" class="cs"></div>
+      </div>
+      <div id="f-apoio" class="campo c2" data-act="campo" data-arg="apoio">
+        <div class="cl">APOIO HOJE</div>
+        <div id="v-apoio" class="cv mono"></div>
+        <div id="s-apoio" class="cs"></div>
+      </div>
+      <div id="qParLbl" class="lbl">A RÉGUA (TOQUE PARA MUDAR)</div>
+      <div id="f-pV" class="campo c3" data-act="campo" data-arg="pV">
+        <div class="cl">POR VENDEDOR</div>
+        <div id="v-pV" class="cv mono"></div>
+      </div>
+      <div id="f-pC" class="campo c3" data-act="campo" data-arg="pC">
+        <div class="cl">POR COLABORADOR</div>
+        <div id="v-pC" class="cv mono"></div>
+      </div>
+      <div id="f-pA" class="campo c3" data-act="campo" data-arg="pA">
+        <div class="cl">FÍSICO POR APOIO</div>
+        <div id="v-pA" class="cv mono"></div>
+      </div>
+      <div id="kp-quadro" class="kp"></div>
+    </div>
+    <div id="qDir" class="card">
+      <div id="qR1" class="regua"></div>
+      <div id="qR2" class="regua"></div>
+      <div id="qR3" class="regua"></div>
+      <div id="qIdeal"></div>
+      <div id="qForm"></div>
+    </div>
+  </div>
+
+  <!-- ===== FOCO ===== -->
+  <div id="pg-foco" class="pg">
+    <div id="fEsq" class="card"></div>
+    <svg id="fAnel" xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+      <circle class="trilho" cx="200" cy="200" r="176" fill="none" stroke-width="18"/>
+      <circle id="fArco" class="arco" cx="200" cy="200" r="176" fill="none" stroke-width="18" stroke-linecap="round" stroke-dasharray="1105.84" stroke-dashoffset="0" transform="rotate(-90 200 200)"/>
+    </svg>
+    <div id="fModo">FOCO</div>
+    <div id="fTempo" class="mono">25:00</div>
+    <div id="fFim">&#160;</div>
+    <div id="fPlay" class="btn pri" data-act="foco" data-arg="play">Iniciar</div>
+    <div id="fReset" class="btn" data-act="foco" data-arg="reset">Reiniciar</div>
+    <div id="fPular" class="btn" data-act="foco" data-arg="pular">Pular</div>
+    <div id="fPre" class="seg">
+      <div id="pre-25" style="left:0px;width:118px" data-act="preset" data-arg="25/5">25 / 5 min</div>
+      <div id="pre-50" style="left:126px;width:118px" data-act="preset" data-arg="50/10">50 / 10 min</div>
+      <div id="pre-15" style="left:252px;width:118px" data-act="preset" data-arg="15/3">15 / 3 min</div>
+    </div>
+    <div id="fDica">Quando o tempo acaba, a tela pisca e toca um bipe.</div>
+    <div id="fDir" class="card"></div>
+  </div>
+
+  <div id="rodape" data-livre="1">
+    <span class="l">Central · o PC publica o status e o iPad lê pela própria internet</span>
+    <span class="r">Cockpit 1.1 · seus números ficam só neste iPad</span>
+  </div>
+  <div id="aviso" data-act="aviso"></div>
+  <div id="flash"></div>
+</div>
+</body>
+</html>
