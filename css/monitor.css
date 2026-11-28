@@ -197,6 +197,10 @@ body.noite { background: #000000 !important; }
 
 /* ---------- 1.7: silenciar, ficha de item, carga do gateway e mapa das 24 horas ---------- */
 .mi.sil, .mc.sil { opacity: 0.5; }
+/* 1.9.2: resolvido e silenciado ficam apagados também nos serviços, no BI, nos robôs e na atenção */
+.ms1.sil, .mm.sil, .mr1.sil, .mat.sil { opacity: 0.5; }
+#mFichaRes { left: 18px; top: 584px; width: 236px; height: 46px; line-height: 44px; font-size: 15px; }
+#mFichaResNota { position: absolute; left: 270px; top: 586px; width: 560px; font-size: 12px; line-height: 17px; color: #8aa0c2; }
 .mres24.lnk { color: #7fc4ff; }
 .mres24.lnk.ruim { color: #f59e0b; }
 .mfd1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

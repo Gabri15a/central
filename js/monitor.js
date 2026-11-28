@@ -20,6 +20,7 @@
   var LS_VOZ = 'central.voz';
   var LS_NOITE = 'central.noite';
   var LS_SIL = 'central.silencio';
+  var LS_RES = 'central.resolvido';
   var LS_TOQUE = 'central.toque';
   var INTERVALO = 60000;
   /* 1.9.1: a VM publica a cada 1 min, mas o raw.githubusercontent.com guarda c\u00f3pia por at\u00e9 5 min; a API do GitHub entrega
@@ -52,6 +53,7 @@
   var voz = { ok: false, ligada: true };
   var noite = { tela: false, som: false, ini: 22, fim: 6 };
   var sil = {}; // 1.7: itens silenciados pelo usu\u00e1rio (chave|estado -> at\u00e9 quando)
+  var res = {}; // 1.9.2: problemas e alertas que o usu\u00e1rio marcou como resolvidos (chave -> [quando, chave do alarme])
   var gh = { em: 0, lido: 0, ruim: false, txt: '' }; // 1.7: githubstatus.com, lido pelo iPad quando os dados n\u00e3o chegam
   var volta = { desde: 0, ate: 0 }; // 1.7: resumo "desde HH" depois de um tempo longe do iPad
 
@@ -184,6 +186,7 @@
       if (!m.chave) { m.rede = 'semchave'; m.msg = ''; return; }
       try {
         m.dados = abrir(env, m.chave);
+        seguro('resolvidos', limparRes);
         m.viaDados = via || '';
         m.recebidoEm = agoraMs();
         m.rede = 'online';
@@ -275,15 +278,22 @@
     return !!(d && d.pc && versaoNum(d.pc.versao) >= 1008 && d.eventos && vis.length === 2 && vis[0].id === 'bi' && vis[1].id === 'ferramentas' && grupoDados('ferramentas'));
   }
   function temRobos() { var g = grupoDados('ferramentas'); return !!(g && g.robos && g.robos.length); }
+  /* 1.9.2: a linha do custo do Google entra no cart\u00e3o de servi\u00e7os; para caber, os cart\u00f5es de baixo descem uma linha */
+  function temCusto() {
+    var l = itensDo('ferramentas'), i;
+    for (i = 0; i < l.length; i++) { if (l[i].p && /^custo\|/.test(l[i].chave || '')) { return true; } }
+    return false;
+  }
   /* 2 grupos: BI alto \u00e0 esquerda; ferramentas e acontecimentos \u00e0 direita. 3 ou 4 grupos: grade 2x2 */
   function posicoes(vis) {
     var n = vis.length, pos = {}, i, temEv = !!(m.dados && m.dados.eventos);
     if (painelNovo()) {
+      var dy = temRobos() && temCusto() ? 24 : 0;
       pos.bi = { x: 16, y: 114, w: 424, h: 552 };
-      pos.srv = temRobos() ? { x: 452, y: 114, w: 272, h: 318 } : { x: 452, y: 114, w: 272, h: 552 };
-      if (temRobos()) { pos.rob = { x: 452, y: 444, w: 272, h: 222 }; }
-      pos.at = { x: 736, y: 114, w: 272, h: 318 };
-      pos.ev = { x: 736, y: 444, w: 272, h: 222 };
+      pos.srv = temRobos() ? { x: 452, y: 114, w: 272, h: 318 + dy } : { x: 452, y: 114, w: 272, h: 552 };
+      if (temRobos()) { pos.rob = { x: 452, y: 444 + dy, w: 272, h: 222 - dy }; }
+      pos.at = { x: 736, y: 114, w: 272, h: 318 + dy };
+      pos.ev = { x: 736, y: 444 + dy, w: 272, h: 222 - dy };
       return pos;
     }
     if (n <= 2 && temEv) {
@@ -305,6 +315,7 @@
       var it = itensDo(vis[g].id);
       for (var i = 0; i < it.length; i++) {
         c.total++;
+        if (resolvido(it[i])) { continue; }
         if (it[i].estado === 'erro') { c.erro++; } else if (it[i].estado === 'alerta' && !silenciado(it[i])) { c.alerta++; }
       }
     }
@@ -331,7 +342,9 @@
     if (o) { for (k in o) { if (o.hasOwnProperty(k) && o[k] > t) { sil[k] = o[k]; } } }
   }
   function chaveSil(it) { return (it.ks || it.chave || it.nome || '') + '|' + it.estado; }
-  function podeSilenciar(it) { return !!it && !it.m && !it.modelo && (it.estado === 'alerta' || it.estado === 'info'); }
+  /* o custo do Google \u00e9 s\u00f3 informa\u00e7\u00e3o: n\u00e3o tem o que silenciar (vira aten\u00e7\u00e3o s\u00f3 se parar de ser lido) */
+  function soInfo(it) { return !!it && it.estado === 'info' && /^custo\|/.test(it.chave || ''); }
+  function podeSilenciar(it) { return !!it && !it.m && !it.modelo && (it.estado === 'alerta' || it.estado === 'info') && !soInfo(it); }
   function silenciado(it) {
     if (!podeSilenciar(it)) { return 0; }
     var a = sil[chaveSil(it)];
@@ -341,6 +354,60 @@
     if (!podeSilenciar(it)) { return; }
     if (dias > 0) { sil[chaveSil(it)] = agoraMs() + dias * 86400000; } else { delete sil[chaveSil(it)]; }
     gravar(LS_SIL, JSON.stringify(sil));
+  }
+
+  /* ---------- resolvido (1.9.2): "j\u00e1 cuidei disso" ----------
+     Tira o problema ou alerta da contagem, da Aten\u00e7\u00e3o e do alarme enquanto ele continuar do mesmo jeito (no m\u00e1ximo 7 dias).
+     Mudou alguma coisa (falhou de novo, mudou de estado, sumiu), a marca cai sozinha; se ainda for problema, o alarme toca. */
+  function lerRes() {
+    var o = null, t = agoraMs(), k;
+    res = {};
+    try { o = JSON.parse(ler(LS_RES) || '{}'); } catch (e) { o = null; }
+    if (o) { for (k in o) { if (o.hasOwnProperty(k) && o[k] && o[k].length === 2 && t - o[k][0] < 7 * 86400000) { res[k] = o[k]; } } }
+  }
+  function modeloPorId(id) { var l = modelosDo('bi'), i; for (i = 0; i < l.length; i++) { if (l[i].id === id) { return l[i]; } } return null; }
+  function itemDoModelo(id) { var l = itensDo('bi'), i; for (i = 0; i < l.length; i++) { if (l[i].m === id) { return l[i]; } } return null; }
+  function itemDoRobo(id) { var l = itensDo('ferramentas'), i; for (i = 0; i < l.length; i++) { if (l[i].rb === id) { return l[i]; } } return null; }
+  /* o incidente e o estado; numa sequ\u00eancia de falhas de um modelo, tamb\u00e9m a \u00faltima falha (falhou de novo = volta) */
+  function chaveRes(it) {
+    var c = String(it.ks || it.chave || it.nome || ''), mo, h;
+    if (it.m && /^m\|[^|]+\|F\|/.test(c)) { mo = modeloPorId(it.m); h = mo && mo.h && mo.h[0]; if (h && h[0] === 'F') { c += '|' + h[1]; } }
+    return c + '|' + it.estado;
+  }
+  function podeResolver(it) { return !!it && (it.estado === 'erro' || it.estado === 'alerta'); }
+  function resolvido(it) { var r = podeResolver(it) ? res[chaveRes(it)] : null; return r ? r[0] : 0; }
+  function quieto(it) { return !!(silenciado(it) || resolvido(it)); }
+  function resolver(it, sim) {
+    if (!podeResolver(it)) { return; }
+    var k = chaveRes(it), ca = it.raiz || it.chave || '', i, t = agoraMs();
+    if (!sim) { delete res[k]; gravar(LS_RES, JSON.stringify(res)); return; }
+    res[k] = [t, ca];
+    gravar(LS_RES, JSON.stringify(res));
+    // se o alarme est\u00e1 tocando por ele, para (como o Ciente)
+    for (i = al.lista.length - 1; i >= 0; i--) { if (al.lista[i].chave === ca) { al.vistos[ca] = [t, al.lista[i].inc]; al.lista.splice(i, 1); } }
+    salvarVistos();
+    if (al.tocando && !al.lista.length) { ciente(); }
+  }
+  /* depois de cada leitura: o que n\u00e3o est\u00e1 mais do mesmo jeito perde a marca */
+  function limparRes() {
+    var atuais = {}, vermelhos = {}, ids = ['bi', 'ferramentas'], g, i, k, mudou = false, vistosMudou = false;
+    for (g = 0; g < ids.length; g++) {
+      var l = itensDo(ids[g]);
+      for (i = 0; i < l.length; i++) {
+        if (!podeResolver(l[i])) { continue; }
+        atuais[chaveRes(l[i])] = 1;
+        if (l[i].estado === 'erro') { vermelhos[l[i].raiz || l[i].chave || ''] = 1; }
+      }
+    }
+    for (k in res) {
+      if (!res.hasOwnProperty(k) || atuais[k]) { continue; }
+      // o mesmo incidente continua vermelho, mas mudou (ex.: falhou de novo): o alarme volta a valer para ele
+      if (res[k][1] && vermelhos[res[k][1]] && al.vistos[res[k][1]]) { delete al.vistos[res[k][1]]; vistosMudou = true; }
+      delete res[k];
+      mudou = true;
+    }
+    if (mudou) { gravar(LS_RES, JSON.stringify(res)); }
+    if (vistosMudou) { salvarVistos(); }
   }
 
   /* ---------- de volta ao iPad (1.7): o que aconteceu enquanto voc\u00ea estava longe ---------- */
@@ -450,6 +517,7 @@
   function pillDe(itens) {
     var nErro = 0, nAlerta = 0, nAtivos = 0, i;
     for (i = 0; i < itens.length; i++) {
+      if (resolvido(itens[i])) { continue; }
       if (itens[i].estado === 'erro') { nErro++; } else if (itens[i].estado === 'alerta' && !silenciado(itens[i])) { nAlerta++; }
       if (itens[i].estado !== 'off') { nAtivos++; }
     }
@@ -468,14 +536,14 @@
   }
   /* aviso de fundo (b): informa, mas n\u00e3o tira do cart\u00e3o quem mostra que est\u00e1 tudo funcionando */
   function pesoItem(it) {
-    if (silenciado(it)) { return 0.4; }
+    if (quieto(it)) { return 0.4; }
     return it.b && (it.estado === 'info' || it.estado === 'ok') ? 0.5 : (PESO[it.estado] || 0);
   }
   function linhaItem(it, primeira, agora, extra) {
-    var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando), ate = silenciado(it);
-    return '<div class="mi ' + est + (primeira ? ' prim' : '') + (ate ? ' sil' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+    var est = COR[it.estado] ? it.estado : 'info', t = quando(it.quando), ate = silenciado(it), rs = resolvido(it);
+    return '<div class="mi ' + est + (primeira ? ' prim' : '') + (ate || rs ? ' sil' : '') + '"' + (extra || '') + '><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
       '<div class="mn">' + U.esc(it.nome || '') + '</div><div class="mv">' + U.esc(it.valor || '') + '</div>' +
-      '<div class="mdt">' + (ate ? 'silenciado at\u00e9 ' + quandoTxt(ate) + ' \u00b7 ' : '') + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
+      '<div class="mdt">' + (rs ? 'resolvido ' + quandoTxt(rs) + ' \u00b7 ' : (ate ? 'silenciado at\u00e9 ' + quandoTxt(ate) + ' \u00b7 ' : '')) + U.esc(it.detalhe || '') + '</div><div class="ma">' + (t !== null ? idadeTxt(agora - t) : '') + '</div></div>';
   }
   /* cart\u00e3o comum: linhas altas (nome, valor, detalhe) ou compactas (nome e valor) */
   function renderGrupo(g, p, compacto) {
@@ -486,7 +554,7 @@
     for (i = 0; i < itens.length && i < max; i++) {
       if (!compacto) { s += linhaItem(itens[i], i === 0, agora); continue; }
       var it = itens[i], est = COR[it.estado] ? it.estado : 'info';
-      s += '<div class="mc ' + est + (i === 0 ? ' prim' : '') + (silenciado(it) ? ' sil' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+      s += '<div class="mc ' + est + (i === 0 ? ' prim' : '') + (quieto(it) ? ' sil' : '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="mcn">' + U.esc(it.nome || '') + '</div><div class="mcv">' + U.esc(it.valor || '') + '</div></div>';
     }
     s += '</div>';
@@ -564,8 +632,9 @@
     for (i = 0; i < mods.length; i++) { if (mods[i].faixa && mods[i].faixa.length === 24) { temMapa = true; } }
     s += '<div class="mres">' + U.esc(res) + '</div><div class="mres24' + (r && r.h24 && r.h24[1] ? ' ruim' : '') + (temMapa ? ' lnk' : '') + '"' + (temMapa ? ' data-act="mon-mapa"' : '') + '>' + U.esc(dia) + (temMapa && dia ? ' \u203a' : '') + '</div><div class="mgrade">';
     for (i = 0; i < lista.length; i++) {
-      var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora);
-      s += '<div class="mm ' + est + '"><i class="md ' + est + (mo.lim && est === 'ok' ? ' lim' : '') + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
+      var mo = lista[i], est = COR[mo.estado] ? mo.estado : 'info', st = statusModelo(mo, agora), rmo = resolvido(itemDoModelo(mo.id));
+      if (rmo) { st = { txt: '\u2713 resolvido', cls: '' }; }
+      s += '<div class="mm ' + est + (rmo ? ' sil' : '') + '"><i class="md ' + est + (mo.lim && est === 'ok' ? ' lim' : '') + '" style="background:' + COR[est] + '"></i><div class="mmn">' + U.esc(mo.nome || '') + '</div>' +
         '<div class="mmb">' + barras(mo.h, fino ? 9 : 12, 5, 2, 17, intervaloS(mo)) + '</div><div class="mmt ' + st.cls + '">' + U.esc(st.txt) + '</div></div>';
     }
     s += '</div>';
@@ -655,7 +724,7 @@
     return n.slice(0, max - ult.length - 2).replace(/\s+$/, '') + '\u2026 ' + ult;
   }
   /* os pilares do cart\u00e3o de servi\u00e7os: itens marcados pelo coletor (p), juntando os de mesmo nome (ex.: o banco SQL visto pelos dois gateways) */
-  var ORD_P = [/^VM /, /^Bot /, /^Gateway/, /^Banco/, /^Pain/, /^Planilhas/, /^PC /];
+  var ORD_P = [/^VM /, /^Bot /, /^Gateway/, /^Banco/, /^Pain/, /^Planilhas/, /^PC /, /^Custo/];
   function pilares() {
     var itens = itensDo('ferramentas'), l = [], por = {}, i, j, k;
     for (i = 0; i < itens.length; i++) {
@@ -664,9 +733,11 @@
       if (!por[it.p]) { por[it.p] = { nome: it.p, itens: [], o: l.length, ord: ORD_P.length }; l.push(por[it.p]); }
       por[it.p].itens.push(it);
     }
+    function pesoP(x) { return resolvido(x) ? 0.4 : (PESO[x.estado] || 0); }
     for (i = 0; i < l.length; i++) {
       var pior = l[i].itens[0];
-      for (j = 1; j < l[i].itens.length; j++) { if ((PESO[l[i].itens[j].estado] || 0) > (PESO[pior.estado] || 0)) { pior = l[i].itens[j]; } }
+      for (j = 1; j < l[i].itens.length; j++) { if (pesoP(l[i].itens[j]) > pesoP(pior)) { pior = l[i].itens[j]; } }
+      l[i].res = !!resolvido(pior);
       l[i].it = pior;
       l[i].estado = COR[pior.estado] ? pior.estado : 'info';
       l[i].valor = pior.pv || pior.valor || '';
@@ -701,7 +772,7 @@
     if (!pil.length) { s += '<div class="mvazio">Sem dados dos servi\u00e7os ainda.</div>'; y += 60; }
     for (i = 0; i < pil.length; i++) {
       var q = pil[i], vm = q.it.vm, est = q.estado, uso = vm ? usoCurto(vm.maq) : '';
-      s += '<div class="ms1 ' + est + (i === 0 ? ' prim' : '') + (vm ? (uso ? ' vm vm2' : ' vm') : '') + '" data-act="mon-abrir" data-arg="' + U.esc(q.it.chave || q.it.nome || '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
+      s += '<div class="ms1 ' + est + (i === 0 ? ' prim' : '') + (q.res ? ' sil' : '') + (vm ? (uso ? ' vm vm2' : ' vm') : '') + '" data-act="mon-abrir" data-arg="' + U.esc(q.it.chave || q.it.nome || '') + '"><i class="md ' + est + '" style="background:' + COR[est] + '"></i>' +
         '<div class="msv">' + U.esc(q.valor) + '</div><div class="msn">' + U.esc(q.nome) + '</div>';
       if (vm) {
         // a VM do Google: as \u00faltimas 24 horas, hora a hora (a mais nova \u00e0 direita), e a disponibilidade
@@ -731,7 +802,7 @@
       s += '<div class="msrot" style="top:' + (y + 12) + 'px">OUTRAS FERRAMENTAS</div><div class="mlista" style="top:' + (y + 28) + 'px">';
       for (i = 0; i < resto.length && i < cabem; i++) {
         var o = resto[i], oe = COR[o.estado] ? o.estado : 'info';
-        s += '<div class="ms1 ' + oe + (i === 0 ? ' prim' : '') + (silenciado(o) ? ' sil' : '') + '" data-act="mon-abrir" data-arg="' + U.esc(o.chave || o.nome || '') + '"><i class="md ' + oe + '" style="background:' + COR[oe] + '"></i>' +
+        s += '<div class="ms1 ' + oe + (i === 0 ? ' prim' : '') + (quieto(o) ? ' sil' : '') + '" data-act="mon-abrir" data-arg="' + U.esc(o.chave || o.nome || '') + '"><i class="md ' + oe + '" style="background:' + COR[oe] + '"></i>' +
           '<div class="msv">' + U.esc(o.valor || '') + '</div><div class="msn">' + U.esc(o.nome || '') + '</div></div>';
       }
       s += '</div><div class="mmais">toque para ver todas</div>';
@@ -740,7 +811,7 @@
   }
   function ordemRobos(l) {
     var r = l.slice(0), i;
-    function peso(x) { return x.estado === 'erro' ? 5 : (x.estado === 'alerta' ? 4 : (x.sit === 'rodando' ? 3 : (x.estado === 'off' ? 0 : 2))); }
+    function peso(x) { return resolvido(itemDoRobo(x.id)) ? 1 : (x.estado === 'erro' ? 5 : (x.estado === 'alerta' ? 4 : (x.sit === 'rodando' ? 3 : (x.estado === 'off' ? 0 : 2)))); }
     function ult(x) { return x.h && x.h.length ? x.h[0][1] : 0; }
     for (i = 0; i < r.length; i++) { r[i]._o = i; }
     r.sort(function (a, b) { return (peso(b) - peso(a)) || (ult(b) - ult(a)) || (a._o - b._o); });
@@ -761,8 +832,8 @@
     if (rb.off && res.length <= 12) { res += ' \u00b7 ' + rb.off + ' ' + U.plural(rb.off, 'desligado', 'desligados'); }
     s += '<div class="mrres">' + U.esc('Power Automate \u00b7 ' + res) + '</div><div class="mrlista">';
     for (i = 0; i < l.length && i < max; i++) {
-      var r = l[i], est = COR[r.estado] ? r.estado : 'info', h = (r.h || []).slice(0, 8);
-      s += '<div class="mr1 ' + est + (i === 0 ? ' prim' : '') + '" data-act="mon-robo" data-arg="' + U.esc(r.id || '') + '"><i class="md ' + est + '" style="background:' + (r.sit === 'rodando' ? '#7fc4ff' : COR[est]) + '"></i>' +
+      var r = l[i], est = COR[r.estado] ? r.estado : 'info', h = (r.h || []).slice(0, 8), rr = resolvido(itemDoRobo(r.id));
+      s += '<div class="mr1 ' + est + (i === 0 ? ' prim' : '') + (rr ? ' sil' : '') + '" data-act="mon-robo" data-arg="' + U.esc(r.id || '') + '"><i class="md ' + est + '" style="background:' + (r.sit === 'rodando' ? '#7fc4ff' : COR[est]) + '"></i>' +
         '<div class="mrn">' + U.esc(nomeRobo(r.nome, 19)) + '</div>';
       if (r.estado === 'off') { s += '<div class="mrt">desligado</div>'; }
       else {
@@ -780,16 +851,18 @@
     var l = [], mods = modelosDo('bi'), agora = agoraMs(), ids = ['bi', 'ferramentas'], i, g;
     for (i = 0; i < mods.length; i++) {
       if (mods[i].estado !== 'erro' && mods[i].estado !== 'alerta') { continue; }
-      l.push({ est: mods[i].estado, nome: mods[i].nome || '', sub: statusModelo(mods[i], agora).txt || mods[i].txt || '', quando: mods[i].inc || '', modelo: mods[i], sil: false, act: 'mon-abrir-modelo', arg: mods[i].id });
+      var rm = !!resolvido(itemDoModelo(mods[i].id));
+      if (rm && !todos) { continue; }
+      l.push({ est: mods[i].estado, nome: mods[i].nome || '', sub: statusModelo(mods[i], agora).txt || mods[i].txt || '', quando: mods[i].inc || '', modelo: mods[i], sil: rm, act: 'mon-abrir-modelo', arg: mods[i].id });
     }
     for (g = 0; g < ids.length; g++) {
       var itens = itensDo(ids[g]);
       for (i = 0; i < itens.length; i++) {
         var it = itens[i];
         if (it.m || it.r || it.d || (it.estado !== 'erro' && it.estado !== 'alerta')) { continue; }
-        var quieto = !!silenciado(it);
-        if (quieto && !todos) { continue; }
-        l.push({ est: it.estado, nome: it.nome || '', sub: it.valor || '', quando: it.quando || '', item: it, sil: quieto, act: it.rb ? 'mon-robo' : 'mon-abrir', arg: it.rb || it.chave || it.nome || '' });
+        var qt = quieto(it);
+        if (qt && !todos) { continue; }
+        l.push({ est: it.estado, nome: it.nome || '', sub: it.valor || '', quando: it.quando || '', item: it, sil: qt, act: it.rb ? 'mon-robo' : 'mon-abrir', arg: it.rb || it.chave || it.nome || '' });
       }
     }
     for (i = 0; i < l.length; i++) { l[i]._o = i; }
@@ -1029,10 +1102,31 @@
     if (m.ficha < 0) { return; }
     var alt = U.$('mFichaAlt');
     if (alt) { U.classe(alt, 'esc', m.fichaTipo !== 'mapa'); U.txt('mFichaAlt', m.mapa7 ? '24 horas' : '7 dias'); }
+    seguro('resolver', renderResolver);
     if (m.fichaTipo === 'mapa') { if (m.mapa7) { renderMapa7(); } else { renderMapa(); } return; }
     if (m.fichaTipo === 'robo') { renderRobo(); return; }
     if (m.fichaTipo === 'item') { renderItem(); return; }
     renderFichaModelo();
+  }
+  /* de quem \u00e9 a ficha aberta: o item do modelo, do rob\u00f4 ou o pr\u00f3prio item */
+  function assuntoFicha() {
+    if (m.ficha < 0 || m.fichaTipo === 'mapa') { return null; }
+    if (m.fichaTipo === 'robo') { return m.fichaItem ? itemAtual(m.fichaItem) : itemDoRobo(m.fichaId); }
+    if (m.fichaTipo === 'item') { return m.fichaItem ? itemAtual(m.fichaItem) : null; }
+    var linha = m.lista[m.ficha], id = m.fichaId || (linha && linha.modelo && linha.modelo.id);
+    return id ? itemDoModelo(id) : null;
+  }
+  function renderResolver() {
+    var it = assuntoFicha(), b = U.$('mFichaRes'), n = U.$('mFichaResNota');
+    if (!b || !n) { return; }
+    var pode = podeResolver(it) && !soInfo(it), rs = pode ? resolvido(it) : 0;
+    U.classe(b, 'esc', !pode);
+    U.classe(n, 'esc', !pode);
+    if (!pode) { return; }
+    U.txt('mFichaRes', rs ? 'Desfazer resolvido' : 'Marcar como resolvido');
+    U.classe(b, 'pri', !rs);
+    U.txt('mFichaResNota', rs ? 'Voc\u00ea marcou como resolvido (' + quandoTxt(rs) + '). Fica fora da contagem, da Aten\u00e7\u00e3o e do alarme at\u00e9 mudar alguma coisa (falhar de novo, mudar de estado), por at\u00e9 7 dias.' :
+      'J\u00e1 cuidou disso? Sai da contagem do topo, da Aten\u00e7\u00e3o e do alarme. Se falhar de novo ou mudar de estado, volta a avisar (e o alarme toca).');
   }
   function renderFichaModelo() {
     var linha = m.lista[m.ficha], mo = m.fichaId ? null : (linha && linha.modelo), agora = agoraMs(), i;
@@ -1216,6 +1310,7 @@
     [/^vm\|disco/, 'Na VM (SSH): du -sh ~/BOT_NATUREZAS/* | sort -h mostra o que cresce (cache de XML e registros); apague o que for antigo.'],
     [/^vm\|cpu/, 'Na VM (SSH): top mostra quem est\u00e1 usando a CPU. A e2-micro s\u00f3 aguenta pouco tempo de CPU alta antes de o Google frear.'],
     [/^vm\|rede/, 'No console do Google Cloud, Faturamento \u203a Relat\u00f3rios, filtre por Compute Engine e veja a linha de rede (Network Internet Egress). Se estiver cobrando, d\u00e1 para descobrir quem manda tanto dado.'],
+    [/^custo\|/, '\u00c9 o que vai para a fatura do Google Cloud no m\u00eas (j\u00e1 descontados a cota gr\u00e1tis e os cr\u00e9ditos). O detalhe por servi\u00e7o fica no console do Google Cloud, em Faturamento \u203a Relat\u00f3rios. Sem leitura: confira se a VM do Cockpit ainda est\u00e1 com a conta de servi\u00e7o cockpit-leitor.'],
     [/^rb\|pc/, 'Ligue o computador dos rob\u00f4s e deixe a sess\u00e3o do Windows aberta, sem ningu\u00e9m usando. Eles voltam no pr\u00f3ximo hor\u00e1rio; para adiantar, abra o fluxo no Power Automate e toque em Executar.'],
     [/^rb\|/, 'No Power Automate (make.powerautomate.com \u203a Meus fluxos), abra o fluxo: a execu\u00e7\u00e3o que falhou mostra em que passo parou. Para rodar agora, toque em Executar.'],
     [/^cl\|/, 'Nada a fazer: o problema \u00e9 na Anthropic. O bot volta a responder sozinho quando a API normalizar.'],
@@ -1291,7 +1386,7 @@
     return { html: s, kMax: kMax, max: max, h0: h0, de: de };
   }
   function renderItem() {
-    var it = itemAtual(m.fichaItem || {}), agora = agoraMs(), est = NOME_EST[it.estado] || NOME_EST.info, t = quando(it.quando), ate = silenciado(it), i;
+    var it = itemAtual(m.fichaItem || {}), agora = agoraMs(), est = soInfo(it) ? ['ciano', 'INFORMATIVO'] : (NOME_EST[it.estado] || NOME_EST.info), t = quando(it.quando), ate = silenciado(it), i;
     if (!m.fichaItem) { fecharFicha(); return; }
     if (it.vm && it.vm.fx) { renderVm(it); return; }
     var s = '<div class="ptit">' + U.esc(it.nome || '') + '</div><div class="mfp"><span class="pill ' + (ate ? 'cinza' : est[0]) + '">' + (ate ? 'SILENCIADO' : est[1]) + '</span></div>';
@@ -1328,7 +1423,7 @@
         s += '<div class="mfl2">O QUE O MONITOR VIU</div>';
         for (i = 0; i < ps.length; i++) { s += '<div class="mfx1"><b>\u203a</b> ' + U.esc(ps[i]) + '</div>'; }
       }
-      if (dica) { s += '<div class="mfl2' + (ps.length ? ' esp' : '') + '">O QUE FAZER</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
+      if (dica) { s += '<div class="mfl2' + (ps.length ? ' esp' : '') + '">' + (soInfo(it) ? 'SOBRE O VALOR' : 'O QUE FAZER') + '</div><div class="mfx1 dica">' + U.esc(dica) + '</div>'; }
       s += '</div>';
     }
     if (podeSilenciar(it)) {
@@ -1783,7 +1878,7 @@
       var itens = itensDo(vis[i].id);
       for (j = 0; j < itens.length; j++) {
         var it = itens[j];
-        if (!it || it.estado !== 'erro') { continue; }
+        if (!it || it.estado !== 'erro' || resolvido(it)) { continue; }
         var chave = it.raiz || it.chave || (vis[i].id + '|' + (it.nome || '') + '|' + (it.quando || ''));
         var p = { chave: chave, inc: it.inc && !it.raiz ? 1 : 0, grupo: vis[i].nome, nome: it.nome || '', valor: it.valor || '', detalhe: it.detalhe || '', quando: it.quando || '', modelo: !!it.m, junto: 0 };
         var ant = porChave[chave];
@@ -2129,6 +2224,7 @@
       } catch (e2) { /* fica o padr\u00e3o */ }
       m.proximaVersao = agoraMs() + 1800000;
       lerSil();
+      lerRes();
       voltou();
       U.acoes['mon-atualizar'] = function () { if (m.novaVersao) { window.location.reload(); return; } m.proxima = 0; buscar(true); };
       U.acoes['mon-chave'] = function () { mostrarSetup(true); };
@@ -2151,6 +2247,12 @@
         render();
       };
       U.acoes['mon-ficha-fechar'] = voltarFicha;
+      U.acoes['mon-res'] = function () {
+        var it = assuntoFicha();
+        if (!podeResolver(it)) { return; }
+        resolver(it, !resolvido(it));
+        render();
+      };
       U.acoes['mon-alarme'] = function () { mostrarAlarmeCfg(true); };
       U.acoes['mon-al-ligar'] = alternarAlarme;
       U.acoes['mon-al-testar'] = testarSom;
